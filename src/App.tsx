@@ -1,19 +1,23 @@
 import {
   Alert,
+  alpha,
   Box,
   Button,
   Card,
   CardContent,
   Chip,
   Container,
+  createTheme,
   CssBaseline,
   Divider,
+  Fade,
   FormControl,
-  Grid,
+  // Grid,
   InputLabel,
   LinearProgress,
   MenuItem,
   Select,
+  type SelectChangeEvent,
   Slider,
   Stack,
   Step,
@@ -22,111 +26,51 @@ import {
   Switch,
   ThemeProvider,
   Typography,
-  alpha,
-  createTheme,
+  Grid,
 } from '@mui/material'
-import type { SelectChangeEvent } from '@mui/material/Select'
 import { useMemo, useState } from 'react'
+
+// Import separate data and logic modules to keep the component clean
+import { dimensions, neighborhoods } from './data'
+import {
+  getTopDriverDimensions,
+  normalizeWeights,
+  recommendedWeightsFromOnboarding,
+  scoreNeighborhood,
+} from './logic'
+import type { Dimension, ProfileType } from './types'
+
 import './App.css'
 
-type Dimension = 'safety' | 'transit' | 'convenience' | 'parking' | 'environment'
-type ProfileType = 'student' | 'professional' | 'family'
-
-type Neighborhood = {
-  name: string
-  objective: Record<Dimension, number | null>
-  perception: Record<Dimension, string>
-  redditSampleSize: number
-  tradeoffNote: string
-}
-
+// Map each dimension to a user-friendly label
 const dimensionLabels: Record<Dimension, string> = {
   safety: 'Safety',
-  transit: 'Transit Access',
-  convenience: 'Daily Convenience',
+  transit: 'Transit',
+  convenience: 'Convenience',
   parking: 'Parking',
   environment: 'Environment',
 }
 
-const neighborhoods: Neighborhood[] = [
-  {
-    name: 'University Town Center',
-    objective: {
-      safety: 72,
-      transit: 91,
-      convenience: 90,
-      parking: 54,
-      environment: 78,
-    },
-    perception: {
-      safety: 'Generally safe at night near main plazas, occasional bike theft concerns.',
-      transit: 'Frequent buses and easy campus access; many users report low car dependence.',
-      convenience: 'Very walkable for groceries, food, and study spots.',
-      parking: 'Visitor parking can be expensive and difficult during peak hours.',
-      environment: 'Active, student-centered area with moderate noise on weekends.',
-    },
-    redditSampleSize: 86,
-    tradeoffNote: 'Excellent transit and convenience, but parking pressure is common.',
-  },
-  {
-    name: 'Northwood',
-    objective: {
-      safety: 86,
-      transit: 62,
-      convenience: 70,
-      parking: 84,
-      environment: 88,
-    },
-    perception: {
-      safety: 'Residents frequently describe it as quiet and family-friendly.',
-      transit: 'Transit is workable but less frequent than central neighborhoods.',
-      convenience: 'Good basics nearby, though some errands still require a short drive.',
-      parking: 'Street and complex parking are usually easier than denser areas.',
-      environment: 'Calm streets, lower noise, and more green space reported.',
-    },
-    redditSampleSize: 59,
-    tradeoffNote: 'Strong safety and environment, weaker transit frequency.',
-  },
-  {
-    name: 'Costa Mesa Border',
-    objective: {
-      safety: 64,
-      transit: 58,
-      convenience: 74,
-      parking: null,
-      environment: 68,
-    },
-    perception: {
-      safety: 'Mixed opinions: some blocks feel safe, others mention late-night caution.',
-      transit: 'Most discussions suggest relying on a car for daily routines.',
-      convenience: 'Good shopping and food options if driving is available.',
-      parking: 'Parking information is inconsistent across postings and complexes.',
-      environment: 'More urban feel with variable noise depending on street proximity.',
-    },
-    redditSampleSize: 37,
-    tradeoffNote: 'Decent convenience with higher uncertainty in parking data quality.',
-  },
-]
-
-const dimensions: Dimension[] = ['safety', 'transit', 'convenience', 'parking', 'environment']
+// Define the steps for the stepper
 const steps = ['Profile', 'Constraints', 'Dashboard']
 
+// Create a custom MUI theme
 const theme = createTheme({
   palette: {
     mode: 'light',
     primary: {
-      main: '#0B5FFF',
+      main: '#0B5FFF', // Vibrant blue for primary actions
     },
     secondary: {
-      main: '#009D77',
+      main: '#009D77', // Green for secondary accents
     },
     background: {
-      default: '#F3F5FA',
+      default: '#F3F5FA', // Light gray background
       paper: '#FFFFFF',
     },
   },
   shape: {
-    borderRadius: 14,
+    borderRadius: 14, // Softer corners for cards
   },
   typography: {
     fontFamily: 'Manrope, "IBM Plex Sans", "Segoe UI", sans-serif',
@@ -141,165 +85,42 @@ const theme = createTheme({
   },
 })
 
-const normalizeWeights = (weights: Record<Dimension, number>) => {
-  const total = dimensions.reduce((sum, key) => sum + weights[key], 0)
-  if (total === 0) {
-    return {
-      safety: 20,
-      transit: 20,
-      convenience: 20,
-      parking: 20,
-      environment: 20,
-    }
-  }
-
-  const normalized = { ...weights }
-  dimensions.forEach((key) => {
-    normalized[key] = Math.round((weights[key] / total) * 100)
-  })
-
-  const diff = 100 - dimensions.reduce((sum, key) => sum + normalized[key], 0)
-  normalized.safety += diff
-  return normalized
-}
-
-const recommendedWeightsFromOnboarding = (params: {
-  hasCar: boolean
-  commuteDays: number
-  safetyPriority: number
-  parkingPriority: boolean
-  profileType: ProfileType
-  sharesHousing: boolean
-  bikeComfort: boolean
-  needsQuietArea: boolean
-}) => {
-  const draft: Record<Dimension, number> = {
-    safety: 20,
-    transit: 20,
-    convenience: 20,
-    parking: 20,
-    environment: 20,
-  }
-
-  if (!params.hasCar) {
-    draft.transit += 18
-    draft.parking -= 10
-    draft.environment -= 8
-  }
-
-  if (params.profileType === 'student') {
-    draft.transit += 4
-    draft.convenience += 6
-    draft.parking -= 5
-    draft.environment -= 5
-  }
-
-  if (params.profileType === 'professional') {
-    draft.safety += 4
-    draft.transit += 3
-    draft.parking += 3
-    draft.environment -= 5
-    draft.convenience -= 5
-  }
-
-  if (params.profileType === 'family') {
-    draft.safety += 10
-    draft.environment += 8
-    draft.transit -= 8
-    draft.parking -= 5
-    draft.convenience -= 5
-  }
-
-  if (params.sharesHousing) {
-    draft.convenience += 6
-    draft.safety -= 3
-    draft.parking -= 3
-  }
-
-  if (!params.hasCar && params.bikeComfort) {
-    draft.transit -= 6
-    draft.convenience += 4
-    draft.environment += 2
-  }
-
-  if (params.needsQuietArea) {
-    draft.environment += 10
-    draft.convenience -= 4
-    draft.transit -= 3
-    draft.parking -= 3
-  }
-
-  if (params.hasCar && params.parkingPriority) {
-    draft.parking += 16
-    draft.transit -= 8
-    draft.convenience -= 8
-  }
-
-  if (params.commuteDays >= 4) {
-    draft.transit += 10
-    draft.environment -= 6
-    draft.convenience -= 4
-  }
-
-  if (params.safetyPriority >= 4) {
-    draft.safety += 12
-    draft.convenience -= 6
-    draft.environment -= 6
-  }
-
-  dimensions.forEach((key) => {
-    draft[key] = Math.max(5, draft[key])
-  })
-
-  return normalizeWeights(draft)
-}
-
-const scoreNeighborhood = (neighborhood: Neighborhood, weights: Record<Dimension, number>) => {
-  let weightedSum = 0
-  let usedWeight = 0
-
-  dimensions.forEach((dimension) => {
-    const value = neighborhood.objective[dimension]
-    if (value !== null) {
-      weightedSum += value * weights[dimension]
-      usedWeight += weights[dimension]
-    }
-  })
-
-  if (usedWeight === 0) return 0
-  return Math.round(weightedSum / usedWeight)
-}
-
-const getTopDriverDimensions = (weights: Record<Dimension, number>) =>
-  [...dimensions]
-    .sort((a, b) => weights[b] - weights[a])
-    .slice(0, 3)
-    .map((dimension) => `${dimensionLabels[dimension]} (${weights[dimension]}%)`)
-
 function App() {
+  // --- State Management ---
+
+  // Stepper state
   const [activeStep, setActiveStep] = useState(0)
-  const [hasCar, setHasCar] = useState(false)
+
+  // Profile Step State
   const [profileType, setProfileType] = useState<ProfileType>('student')
+  const [hasCar, setHasCar] = useState(false)
   const [sharesHousing, setSharesHousing] = useState(true)
   const [bikeComfort, setBikeComfort] = useState(true)
   const [needsQuietArea, setNeedsQuietArea] = useState(false)
+
+  // Constraints Step State
   const [commuteDays, setCommuteDays] = useState(4)
   const [safetyPriority, setSafetyPriority] = useState(4)
   const [parkingPriority, setParkingPriority] = useState(false)
+
+  // Dashboard State
   const [leftNeighborhood, setLeftNeighborhood] = useState(neighborhoods[0].name)
   const [rightNeighborhood, setRightNeighborhood] = useState(neighborhoods[1].name)
   const [weights, setWeights] = useState<Record<Dimension, number>>(
+    // Initialize weights based on default profile settings
     recommendedWeightsFromOnboarding({
-      hasCar,
-      commuteDays,
-      safetyPriority,
-      parkingPriority,
-      profileType,
-      sharesHousing,
-      bikeComfort,
-      needsQuietArea,
+      hasCar: false,
+      commuteDays: 4,
+      safetyPriority: 4,
+      parkingPriority: false,
+      profileType: 'student',
+      sharesHousing: true,
+      bikeComfort: true,
+      needsQuietArea: false,
     }),
   )
+
+  // --- Derived State (Memoized) ---
 
   const leftData = useMemo(
     () => neighborhoods.find((n) => n.name === leftNeighborhood) ?? neighborhoods[0],
@@ -310,9 +131,11 @@ function App() {
     [rightNeighborhood],
   )
 
+  // Calculate scores dynamically based on current weights
   const leftScore = useMemo(() => scoreNeighborhood(leftData, weights), [leftData, weights])
   const rightScore = useMemo(() => scoreNeighborhood(rightData, weights), [rightData, weights])
 
+  // Generate a text recommendation summarizing the comparison
   const recommendation = useMemo(() => {
     if (leftScore === rightScore) {
       return `Both neighborhoods are currently tied at ${leftScore}/100 under your weights.`
@@ -323,7 +146,10 @@ function App() {
     return `${preferred} leads by ${diff} points based on your personalized objective weighting.`
   }, [leftData.name, leftScore, rightData.name, rightScore])
 
+  // Identify leading factors in the current weight configuration
   const topDrivers = useMemo(() => getTopDriverDimensions(weights), [weights])
+
+  // --- Event Handlers ---
 
   const applyRecommendedWeights = () => {
     setWeights(
@@ -351,6 +177,7 @@ function App() {
   }
 
   const handleWeightChange = (dimension: Dimension, value: number) => {
+    // Update one weight and re-normalize the rest to keep sum at 100%
     const draft = { ...weights, [dimension]: value }
     setWeights(normalizeWeights(draft))
   }
@@ -369,13 +196,16 @@ function App() {
       <CssBaseline />
       <Container maxWidth="lg" sx={{ py: { xs: 3, md: 5 } }}>
         <Stack spacing={3}>
+          {/* Header Card */}
           <Card
+            elevation={0}
             sx={{
               overflow: 'hidden',
               background: `linear-gradient(130deg, ${alpha(theme.palette.primary.main, 0.08)}, ${alpha(
                 theme.palette.secondary.main,
                 0.13,
               )})`,
+              border: `1px solid ${alpha(theme.palette.primary.main, 0.1)}`,
             }}
           >
             <CardContent>
@@ -386,13 +216,18 @@ function App() {
                   AI-generated Reddit perception summaries.
                 </Typography>
                 <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-                  <Chip label={`Top weight: ${topDrivers[0]}`} color="primary" />
+                  <Chip
+                    label={`Top weight: ${topDrivers[0]}`}
+                    color="primary"
+                    sx={{ fontWeight: 600 }}
+                  />
                   <Chip label="Prototype focus: explainability" variant="outlined" />
                 </Stack>
               </Stack>
             </CardContent>
           </Card>
 
+          {/* Stepper Navigation */}
           <Card>
             <CardContent>
               <Stepper activeStep={activeStep} alternativeLabel>
@@ -405,304 +240,366 @@ function App() {
             </CardContent>
           </Card>
 
+          {/* Step 1: Profile Selection */}
           {activeStep === 0 && (
-            <Card>
-              <CardContent>
-                <Stack spacing={3}>
-                  <Typography variant="h6">Adaptive onboarding: profile</Typography>
-
-                  <FormControl fullWidth>
-                    <InputLabel>Profile type</InputLabel>
-                    <Select
-                      label="Profile type"
-                      value={profileType}
-                      onChange={(event) => setProfileType(event.target.value as ProfileType)}
-                    >
-                      <MenuItem value="student">Student</MenuItem>
-                      <MenuItem value="professional">Working professional</MenuItem>
-                      <MenuItem value="family">Family household</MenuItem>
-                    </Select>
-                  </FormControl>
-
-                  <Stack direction="row" alignItems="center" justifyContent="space-between">
-                    <Typography>Do you currently have a car?</Typography>
-                    <Switch checked={hasCar} onChange={(e) => setHasCar(e.target.checked)} />
-                  </Stack>
-
-                  <Stack direction="row" alignItems="center" justifyContent="space-between">
-                    <Typography>You are sharing housing with roommates</Typography>
-                    <Switch checked={sharesHousing} onChange={(e) => setSharesHousing(e.target.checked)} />
-                  </Stack>
-
-                  {!hasCar && (
-                    <Stack direction="row" alignItems="center" justifyContent="space-between">
-                      <Typography>Comfortable biking for part of commute</Typography>
-                      <Switch checked={bikeComfort} onChange={(e) => setBikeComfort(e.target.checked)} />
-                    </Stack>
-                  )}
-
-                  <Stack direction="row" alignItems="center" justifyContent="space-between">
-                    <Typography>Prefer a low-noise neighborhood</Typography>
-                    <Switch checked={needsQuietArea} onChange={(e) => setNeedsQuietArea(e.target.checked)} />
-                  </Stack>
-
-                  <Alert severity="info" variant="outlined">
-                    These profile conditions feed recommended baseline weights before manual tuning.
-                  </Alert>
-                </Stack>
-              </CardContent>
-            </Card>
-          )}
-
-          {activeStep === 1 && (
-            <Card>
-              <CardContent>
-                <Stack spacing={3}>
-                  <Typography variant="h6">Adaptive onboarding: constraints</Typography>
-
-                  <Box>
-                    <Typography gutterBottom>How many days per week do you commute?</Typography>
-                    <Slider
-                      value={commuteDays}
-                      min={0}
-                      max={7}
-                      marks
-                      step={1}
-                      valueLabelDisplay="auto"
-                      onChange={(_, value) => setCommuteDays(value as number)}
-                    />
-                  </Box>
-
-                  <Box>
-                    <Typography gutterBottom>How important is nighttime safety?</Typography>
-                    <Slider
-                      value={safetyPriority}
-                      min={1}
-                      max={5}
-                      marks
-                      step={1}
-                      valueLabelDisplay="auto"
-                      onChange={(_, value) => setSafetyPriority(value as number)}
-                    />
-                  </Box>
-
-                  {hasCar && (
-                    <Stack direction="row" alignItems="center" justifyContent="space-between">
-                      <Typography>Parking availability is a high priority</Typography>
-                      <Switch checked={parkingPriority} onChange={(e) => setParkingPriority(e.target.checked)} />
-                    </Stack>
-                  )}
-
-                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
-                    <Button variant="contained" onClick={applyRecommendedWeights}>
-                      Apply recommended weights
-                    </Button>
-                    <Button variant="outlined" onClick={resetWeights}>
-                      Reset to even weights
-                    </Button>
-                  </Stack>
-                </Stack>
-              </CardContent>
-            </Card>
-          )}
-
-          {isOnDashboard && (
-            <Stack spacing={3}>
-              <Alert severity="info">
-                Objective scores below are API-based metrics. Perception text is AI-generated from
-                Reddit discussions and shown separately.
-              </Alert>
-
+            <Fade in={activeStep === 0}>
               <Card>
                 <CardContent>
-                  <Stack spacing={2}>
-                    <Typography variant="h6">Current weighting snapshot</Typography>
-                    <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                  <Stack spacing={3}>
+                    <Typography variant="h6">Adaptive onboarding: profile</Typography>
+
+                    <FormControl fullWidth>
+                      <InputLabel>Profile type</InputLabel>
+                      <Select
+                        label="Profile type"
+                        value={profileType}
+                        onChange={(event) => setProfileType(event.target.value as ProfileType)}
+                      >
+                        <MenuItem value="student">Student</MenuItem>
+                        <MenuItem value="professional">Working professional</MenuItem>
+                        <MenuItem value="family">Family household</MenuItem>
+                      </Select>
+                    </FormControl>
+
+                    <Stack direction="row" alignItems="center" justifyContent="space-between">
+                      <Typography>Do you currently have a car?</Typography>
+                      <Switch checked={hasCar} onChange={(e) => setHasCar(e.target.checked)} />
+                    </Stack>
+
+                    <Stack direction="row" alignItems="center" justifyContent="space-between">
+                      <Typography>You are sharing housing with roommates</Typography>
+                      <Switch
+                        checked={sharesHousing}
+                        onChange={(e) => setSharesHousing(e.target.checked)}
+                      />
+                    </Stack>
+
+                    {/* Conditional input: Only show bike comfort if no car */}
+                    {!hasCar && (
+                      <Stack direction="row" alignItems="center" justifyContent="space-between">
+                        <Typography>Comfortable biking for part of commute</Typography>
+                        <Switch
+                          checked={bikeComfort}
+                          onChange={(e) => setBikeComfort(e.target.checked)}
+                        />
+                      </Stack>
+                    )}
+
+                    <Stack direction="row" alignItems="center" justifyContent="space-between">
+                      <Typography>Prefer a low-noise neighborhood</Typography>
+                      <Switch
+                        checked={needsQuietArea}
+                        onChange={(e) => setNeedsQuietArea(e.target.checked)}
+                      />
+                    </Stack>
+
+                    <Alert severity="info" variant="outlined">
+                      These profile conditions feed recommended baseline weights before manual tuning.
+                    </Alert>
+                  </Stack>
+                </CardContent>
+              </Card>
+            </Fade>
+          )}
+
+          {/* Step 2: Constraints & Weights */}
+          {activeStep === 1 && (
+            <Fade in={activeStep === 1}>
+              <Card>
+                <CardContent>
+                  <Stack spacing={3}>
+                    <Typography variant="h6">Adaptive onboarding: constraints</Typography>
+
+                    <Box>
+                      <Typography gutterBottom>How many days per week do you commute?</Typography>
+                      <Slider
+                        value={commuteDays}
+                        min={0}
+                        max={7}
+                        marks
+                        step={1}
+                        valueLabelDisplay="auto"
+                        onChange={(_, value) => setCommuteDays(value as number)}
+                      />
+                    </Box>
+
+                    <Box>
+                      <Typography gutterBottom>How important is nighttime safety?</Typography>
+                      <Slider
+                        value={safetyPriority}
+                        min={1}
+                        max={5}
+                        marks
+                        step={1}
+                        valueLabelDisplay="auto"
+                        onChange={(_, value) => setSafetyPriority(value as number)}
+                      />
+                    </Box>
+
+                    {hasCar && (
+                      <Stack direction="row" alignItems="center" justifyContent="space-between">
+                        <Typography>Parking availability is a high priority</Typography>
+                        <Switch
+                          checked={parkingPriority}
+                          onChange={(e) => setParkingPriority(e.target.checked)}
+                        />
+                      </Stack>
+                    )}
+
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+                      <Button variant="contained" onClick={applyRecommendedWeights}>
+                        Apply recommended weights
+                      </Button>
+                      <Button variant="outlined" onClick={resetWeights}>
+                        Reset to even weights
+                      </Button>
+                    </Stack>
+                  </Stack>
+                </CardContent>
+              </Card>
+            </Fade>
+          )}
+
+          {/* Step 3: Dashboard & Comparison */}
+          {isOnDashboard && (
+            <Fade in={isOnDashboard}>
+              <Stack spacing={3}>
+                <Alert severity="info">
+                  Objective scores below are API-based metrics. Perception text is AI-generated from
+                  Reddit discussions and shown separately.
+                </Alert>
+
+                {/* Weight Snapshot */}
+                <Card>
+                  <CardContent>
+                    <Stack spacing={2}>
+                      <Typography variant="h6">Current weighting snapshot</Typography>
+                      <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                        {dimensions.map((dimension) => (
+                          <Chip
+                            key={dimension}
+                            label={`${dimensionLabels[dimension]} ${weights[dimension]}%`}
+                            size="small"
+                            color="default" // Neutral color for overview
+                          />
+                        ))}
+                      </Stack>
+                      <Typography variant="body2" color="text.secondary">
+                        Top drivers: {topDrivers.join(' • ')}
+                      </Typography>
+                    </Stack>
+                  </CardContent>
+                </Card>
+
+                {/* Neighborhood Selectors */}
+                <Card>
+                  <CardContent>
+                    <Stack spacing={2}>
+                      <Typography variant="h6">Select neighborhoods</Typography>
+                      <Grid container spacing={2}>
+                        <Grid size={{ xs: 12, md: 6 }}>
+                          <FormControl fullWidth>
+                            <InputLabel>Neighborhood A</InputLabel>
+                            <Select
+                              label="Neighborhood A"
+                              value={leftNeighborhood}
+                              onChange={(event) => handleNeighborhoodSelect('left', event)}
+                            >
+                              {neighborhoods.map((n) => (
+                                <MenuItem key={n.name} value={n.name}>
+                                  {n.name}
+                                </MenuItem>
+                              ))}
+                            </Select>
+                          </FormControl>
+                        </Grid>
+                        <Grid size={{ xs: 12, md: 6 }}>
+                          <FormControl fullWidth>
+                            <InputLabel>Neighborhood B</InputLabel>
+                            <Select
+                              label="Neighborhood B"
+                              value={rightNeighborhood}
+                              onChange={(event) => handleNeighborhoodSelect('right', event)}
+                            >
+                              {neighborhoods.map((n) => (
+                                <MenuItem key={n.name} value={n.name}>
+                                  {n.name}
+                                </MenuItem>
+                              ))}
+                            </Select>
+                          </FormControl>
+                        </Grid>
+                      </Grid>
+                      {isSameNeighborhood && (
+                        <Alert severity="warning" variant="outlined">
+                          You selected the same neighborhood on both sides. Choose different options
+                          to get a meaningful comparison.
+                        </Alert>
+                      )}
+                    </Stack>
+                  </CardContent>
+                </Card>
+
+                {/* Fine-tuning Slider Controls */}
+                <Card>
+                  <CardContent>
+                    <Stack spacing={2}>
+                      <Typography variant="h6">Manual weight adjustment</Typography>
+                      <Typography color="text.secondary">
+                        Override recommended weights to explore trade-offs.
+                      </Typography>
                       {dimensions.map((dimension) => (
-                        <Chip key={dimension} label={`${dimensionLabels[dimension]} ${weights[dimension]}%`} size="small" />
+                        <Box key={dimension}>
+                          <Stack
+                            direction="row"
+                            justifyContent="space-between"
+                            alignItems="center"
+                          >
+                            <Typography>{dimensionLabels[dimension]}</Typography>
+                            <Chip label={`${weights[dimension]}%`} size="small" />
+                          </Stack>
+                          <Slider
+                            value={weights[dimension]}
+                            min={5}
+                            max={60}
+                            step={1}
+                            color="primary"
+                            onChange={(_, value) => handleWeightChange(dimension, value as number)}
+                          />
+                        </Box>
                       ))}
                     </Stack>
-                    <Typography variant="body2" color="text.secondary">
-                      Top drivers: {topDrivers.join(' • ')}
-                    </Typography>
-                  </Stack>
-                </CardContent>
-              </Card>
+                  </CardContent>
+                </Card>
 
-              <Card>
-                <CardContent>
-                  <Stack spacing={2}>
-                    <Typography variant="h6">Select neighborhoods</Typography>
-                    <Grid container spacing={2}>
-                      <Grid size={{ xs: 12, md: 6 }}>
-                        <FormControl fullWidth>
-                          <InputLabel>Neighborhood A</InputLabel>
-                          <Select
-                            label="Neighborhood A"
-                            value={leftNeighborhood}
-                            onChange={(event) => handleNeighborhoodSelect('left', event)}
-                          >
-                            {neighborhoods.map((n) => (
-                              <MenuItem key={n.name} value={n.name}>
-                                {n.name}
-                              </MenuItem>
-                            ))}
-                          </Select>
-                        </FormControl>
-                      </Grid>
-                      <Grid size={{ xs: 12, md: 6 }}>
-                        <FormControl fullWidth>
-                          <InputLabel>Neighborhood B</InputLabel>
-                          <Select
-                            label="Neighborhood B"
-                            value={rightNeighborhood}
-                            onChange={(event) => handleNeighborhoodSelect('right', event)}
-                          >
-                            {neighborhoods.map((n) => (
-                              <MenuItem key={n.name} value={n.name}>
-                                {n.name}
-                              </MenuItem>
-                            ))}
-                          </Select>
-                        </FormControl>
-                      </Grid>
-                    </Grid>
-                    {isSameNeighborhood && (
-                      <Alert severity="warning" variant="outlined">
-                        You selected the same neighborhood on both sides. Choose different options
-                        to get a meaningful comparison.
-                      </Alert>
-                    )}
-                  </Stack>
-                </CardContent>
-              </Card>
+                {/* Compare Cards Side-by-Side */}
+                <Grid container spacing={2}>
+                  {[leftData, rightData].map((neighborhood, index) => {
+                    const score = index === 0 ? leftScore : rightScore
+                    // Highlight the winner if scores differ
+                    const isWinner =
+                      (index === 0 && leftScore > rightScore) ||
+                      (index === 1 && rightScore > leftScore)
 
-              <Card>
-                <CardContent>
-                  <Stack spacing={2}>
-                    <Typography variant="h6">Manual weight adjustment</Typography>
-                    <Typography color="text.secondary">
-                      Override recommended weights to explore trade-offs.
-                    </Typography>
-                    {dimensions.map((dimension) => (
-                      <Box key={dimension}>
-                        <Stack direction="row" justifyContent="space-between" alignItems="center">
-                          <Typography>{dimensionLabels[dimension]}</Typography>
-                          <Chip label={`${weights[dimension]}%`} size="small" />
-                        </Stack>
-                        <Slider
-                          value={weights[dimension]}
-                          min={5}
-                          max={60}
-                          step={1}
-                          onChange={(_, value) => handleWeightChange(dimension, value as number)}
-                        />
-                      </Box>
-                    ))}
-                  </Stack>
-                </CardContent>
-              </Card>
-
-              <Grid container spacing={2}>
-                {[leftData, rightData].map((neighborhood, index) => {
-                  const score = index === 0 ? leftScore : rightScore
-                  return (
-                    <Grid key={neighborhood.name} size={{ xs: 12, md: 6 }}>
-                      <Card sx={{ height: '100%' }}>
-                        <CardContent>
-                          <Stack spacing={2}>
-                            <Typography variant="h6">{neighborhood.name}</Typography>
-                            <Box>
-                              <Stack direction="row" justifyContent="space-between">
-                                <Typography fontWeight={600}>Personalized objective score</Typography>
-                                <Typography fontWeight={700}>{score}/100</Typography>
-                              </Stack>
-                              <LinearProgress
-                                variant="determinate"
-                                value={score}
-                                sx={{
-                                  mt: 1,
-                                  height: 9,
-                                  borderRadius: 999,
-                                  backgroundColor: alpha(theme.palette.primary.main, 0.15),
-                                }}
-                              />
-                            </Box>
-
-                            <Divider />
-
-                            <Typography variant="subtitle1" fontWeight={600}>
-                              Objective API metrics
-                            </Typography>
-                            {dimensions.map((dimension) => {
-                              const value = neighborhood.objective[dimension]
-                              const display = value === null ? 'N/A' : `${value}/100`
-                              return (
-                                <Stack
-                                  key={dimension}
-                                  direction="row"
-                                  justifyContent="space-between"
-                                  alignItems="center"
-                                >
-                                  <Typography>{dimensionLabels[dimension]}</Typography>
-                                  <Chip
-                                    label={display}
-                                    color={value === null ? 'default' : 'primary'}
-                                    variant={value === null ? 'outlined' : 'filled'}
-                                    size="small"
-                                  />
+                    return (
+                      <Grid key={neighborhood.name} size={{ xs: 12, md: 6 }}>
+                        <Card
+                          sx={{
+                            height: '100%',
+                            border: isWinner
+                              ? `2px solid ${theme.palette.primary.main}`
+                              : undefined,
+                            boxShadow: isWinner ? 4 : 1,
+                            transition: 'box-shadow 0.3s ease',
+                          }}
+                        >
+                          <CardContent>
+                            <Stack spacing={2}>
+                              <Typography variant="h6">{neighborhood.name}</Typography>
+                              <Box>
+                                <Stack direction="row" justifyContent="space-between">
+                                  <Typography fontWeight={600}>
+                                    Personalized objective score
+                                  </Typography>
+                                  <Typography
+                                    fontWeight={700}
+                                    color={isWinner ? 'primary.main' : 'text.primary'}
+                                  >
+                                    {score}/100
+                                  </Typography>
                                 </Stack>
-                              )
-                            })}
-
-                            <Divider />
-
-                            <Typography variant="subtitle1" fontWeight={600}>
-                              AI-generated perception summary (Reddit)
-                            </Typography>
-                            <Typography color="text.secondary" variant="body2">
-                              Based on {neighborhood.redditSampleSize} upvote-weighted discussion
-                              snippets.
-                            </Typography>
-                            {dimensions.map((dimension) => (
-                              <Box key={dimension}>
-                                <Typography variant="body2" fontWeight={600}>
-                                  {dimensionLabels[dimension]}
-                                </Typography>
-                                <Typography variant="body2" color="text.secondary">
-                                  {neighborhood.perception[dimension]}
-                                </Typography>
+                                <LinearProgress
+                                  variant="determinate"
+                                  value={score}
+                                  sx={{
+                                    mt: 1,
+                                    height: 9,
+                                    borderRadius: 999,
+                                    backgroundColor: alpha(theme.palette.primary.main, 0.15),
+                                    '& .MuiLinearProgress-bar': {
+                                      borderRadius: 999,
+                                    },
+                                  }}
+                                />
                               </Box>
-                            ))}
 
-                            <Alert severity="warning" variant="outlined">
-                              {neighborhood.tradeoffNote}
-                            </Alert>
-                          </Stack>
-                        </CardContent>
-                      </Card>
-                    </Grid>
-                  )
-                })}
-              </Grid>
+                              <Divider />
 
-              <Card>
-                <CardContent>
-                  <Stack spacing={1.5}>
-                    <Typography variant="h6">Structured trade-off summary</Typography>
-                    <Typography>{recommendation}</Typography>
-                    <Typography color="text.secondary" variant="body2">
-                      This prototype focuses on neighborhood-level decision support and handles
-                      incomplete data by excluding missing metrics from weighted score
-                      calculations.
-                    </Typography>
-                  </Stack>
-                </CardContent>
-              </Card>
-            </Stack>
+                              <Typography variant="subtitle1" fontWeight={600}>
+                                Objective API metrics
+                              </Typography>
+                              {dimensions.map((dimension) => {
+                                const value = neighborhood.objective[dimension]
+                                const display = value === null ? 'N/A' : `${value}/100`
+                                return (
+                                  <Stack
+                                    key={dimension}
+                                    direction="row"
+                                    justifyContent="space-between"
+                                    alignItems="center"
+                                  >
+                                    <Typography>{dimensionLabels[dimension]}</Typography>
+                                    <Chip
+                                      label={display}
+                                      color={value === null ? 'default' : 'primary'}
+                                      variant={value === null ? 'outlined' : 'filled'}
+                                      size="small"
+                                    />
+                                  </Stack>
+                                )
+                              })}
+
+                              <Divider />
+
+                              <Typography variant="subtitle1" fontWeight={600}>
+                                AI-generated perception summary (Reddit)
+                              </Typography>
+                              <Typography color="text.secondary" variant="body2">
+                                Based on {neighborhood.redditSampleSize} upvote-weighted discussion
+                                snippets.
+                              </Typography>
+                              {dimensions.map((dimension) => (
+                                <Box key={dimension}>
+                                  <Typography variant="body2" fontWeight={600}>
+                                    {dimensionLabels[dimension]}
+                                  </Typography>
+                                  <Typography variant="body2" color="text.secondary">
+                                    {neighborhood.perception[dimension]}
+                                  </Typography>
+                                </Box>
+                              ))}
+
+                              <Alert severity="warning" variant="outlined">
+                                {neighborhood.tradeoffNote}
+                              </Alert>
+                            </Stack>
+                          </CardContent>
+                        </Card>
+                      </Grid>
+                    )
+                  })}
+                </Grid>
+
+                {/* Final Recommendation Card */}
+                <Card>
+                  <CardContent>
+                    <Stack spacing={1.5}>
+                      <Typography variant="h6">Structured trade-off summary</Typography>
+                      <Typography>{recommendation}</Typography>
+                      <Typography color="text.secondary" variant="body2">
+                        This prototype focuses on neighborhood-level decision support and handles
+                        incomplete data by excluding missing metrics from weighted score
+                        calculations.
+                      </Typography>
+                    </Stack>
+                  </CardContent>
+                </Card>
+              </Stack>
+            </Fade>
           )}
 
-          <Stack direction="row" justifyContent="space-between">
+          {/* Navigation Buttons */}
+          <Stack direction="row" justifyContent="space-between" sx={{ mt: 2 }}>
             <Button disabled={activeStep === 0} onClick={() => setActiveStep((s) => s - 1)}>
               Back
             </Button>

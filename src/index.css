@@ -14,8 +14,23 @@
 body {
   margin: 0;
   min-width: 320px;
+  /* Smooth animated background for a more dynamic feel */
   background:
     radial-gradient(circle at 12% 0%, rgba(11, 95, 255, 0.14), transparent 45%),
     radial-gradient(circle at 88% 14%, rgba(0, 157, 119, 0.16), transparent 44%),
     linear-gradient(180deg, #f6f8fc 0%, #eef1f8 100%);
+  background-size: 200% 200%;
+  animation: breathing-gradient 15s ease infinite alternate;
+}
+
+@keyframes breathing-gradient {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
 }
