@@ -1,5 +1,6 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap');
+
 :root {
-  font-family: Inter, Roboto, 'Helvetica Neue', Arial, sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -13,5 +14,8 @@
 body {
   margin: 0;
   min-width: 320px;
-  background: #f4f6f8;
+  background:
+    radial-gradient(circle at 12% 0%, rgba(11, 95, 255, 0.14), transparent 45%),
+    radial-gradient(circle at 88% 14%, rgba(0, 157, 119, 0.16), transparent 44%),
+    linear-gradient(180deg, #f6f8fc 0%, #eef1f8 100%);
 }
