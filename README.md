@@ -1,73 +1,88 @@
-# React + TypeScript + Vite
+# RentWise Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Frontend prototype built with React, TypeScript, Vite, and MUI.
 
-Currently, two official plugins are available:
+## Key Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- Three-step flow: `Profile -> Constraints -> Dashboard`
+- Auto-generated recommendation weights from user profile and constraints
+- Manual weight tuning with real-time personalized score recalculation
+- Side-by-side neighborhood comparison:
+  - Objective API metrics
+  - AI-generated Reddit perception summaries
+- Structured trade-off summary output
+- Missing-data tolerance (`null` metrics are excluded from weighted scoring)
 
-## React Compiler
+## Tech Stack
 
-The React Compiler is currently not compatible with SWC. See [this issue](https://github.com/vitejs/vite-plugin-react/issues/428) for tracking the progress.
+- React 19
+- TypeScript 5
+- Vite 7
+- MUI 7 (Material UI)
+- ESLint 9
 
-## Expanding the ESLint configuration
+## Quick Start
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+### 1) Install dependencies
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm ci
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+### 2) Run the development server
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+```bash
+npm run dev
+```
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+Default local URL:
+
+- `http://127.0.0.1:5173`
+
+### 3) Build for production
+
+```bash
+npm run build
+```
+
+### 4) Preview production build
+
+```bash
+npm run preview
+```
+
+### 5) Run lint checks
+
+```bash
+npm run lint
+```
+
+## NPM Registry Troubleshooting
+
+If you see `ENOTFOUND mirrors.cloud.tencent.com` (or similar), your npm registry is likely set to an unreachable mirror.
+Switch back to the official registry:
+
+```bash
+npm config set registry https://registry.npmjs.org
+```
+
+Then run:
+
+```bash
+npm ci
+```
+
+## Project Structure
+
+```text
+Rentwise-Frontend/
+├─ public/
+├─ src/
+│  ├─ App.tsx
+│  ├─ App.css
+│  ├─ index.css
+│  └─ main.tsx
+├─ index.html
+├─ package.json
+└─ vite.config.ts
 ```
