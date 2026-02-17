@@ -1,78 +1,79 @@
 # RentWise Frontend
 
-RentWise 前端原型项目，使用 React + TypeScript + Vite + MUI 构建。  
-该原型聚焦“可解释的社区对比决策”：将客观指标（Objective Metrics）与 Reddit 语义总结（Perception Summary）并列展示，帮助用户快速理解社区差异与权衡。
+RentWise is a frontend prototype built with React, TypeScript, Vite, and MUI.
+It focuses on explainable neighborhood comparison by showing objective metrics and AI-generated Reddit perception summaries side by side.
 
-## 主要功能
+## Key Features
 
-- 三步式流程：`Profile -> Constraints -> Dashboard`
-- 基于用户画像与约束条件自动推荐权重
-- 手动调权并实时重算个性化社区评分
-- 双社区并排对比：
-  - 客观 API 指标
-  - AI 生成的 Reddit 认知总结
-- 结构化结论输出（trade-off summary）
-- 缺失指标容错（`null` 指标不参与加权计算）
+- Three-step flow: `Profile -> Constraints -> Dashboard`
+- Auto-generated recommendation weights from user profile and constraints
+- Manual weight tuning with real-time personalized score recalculation
+- Side-by-side neighborhood comparison:
+  - Objective API metrics
+  - AI-generated Reddit perception summaries
+- Structured trade-off summary output
+- Missing-data tolerance (`null` metrics are excluded from weighted scoring)
 
-## 技术栈
+## Tech Stack
 
 - React 19
 - TypeScript 5
 - Vite 7
-- MUI 7（Material UI）
+- MUI 7 (Material UI)
 - ESLint 9
 
-## 快速开始
+## Quick Start
 
-### 1) 安装依赖
+### 1) Install dependencies
 
 ```bash
 npm ci
 ```
 
-### 2) 启动开发环境
+### 2) Run the development server
 
 ```bash
 npm run dev
 ```
 
-默认地址（通常）:
+Default local URL (usually):
 
 - `http://127.0.0.1:5173`
 
-### 3) 构建生产包
+### 3) Build for production
 
 ```bash
 npm run build
 ```
 
-### 4) 本地预览生产包
+### 4) Preview production build
 
 ```bash
 npm run preview
 ```
 
-### 5) 代码检查
+### 5) Run lint checks
 
 ```bash
 npm run lint
 ```
 
-## NPM 源常见问题
+## NPM Registry Troubleshooting
 
-如果你遇到 `ENOTFOUND mirrors.cloud.tencent.com` 或类似错误，说明本机 npm 源被设置到不可达镜像。可以切回官方源：
+If you see `ENOTFOUND mirrors.cloud.tencent.com` (or similar), your npm registry is likely set to an unreachable mirror.
+Switch back to the official registry:
 
 ```bash
 npm config set registry https://registry.npmjs.org
 ```
 
-然后重新执行：
+Then run:
 
 ```bash
 npm ci
 ```
 
-## 目录结构
+## Project Structure
 
 ```text
 Rentwise-Frontend/
@@ -87,24 +88,24 @@ Rentwise-Frontend/
 └─ vite.config.ts
 ```
 
-## 已完成的前端优化
+## Implemented Frontend Improvements
 
-- 视觉主题升级：统一色彩系统、背景层次与卡片风格
-- 字体与排版升级：提升标题与正文层次感
-- Dashboard 可解释性增强：新增当前权重快照 + Top Drivers
-- 交互完善：
-  - 推荐权重一键应用
-  - 权重一键重置
-  - A/B 选择相同社区时告警提示
-- 移动端可读性优化：关键区域间距与按钮布局自适应
+- Updated visual theme with clearer color hierarchy and card styling
+- Improved typography for better readability and information hierarchy
+- Added dashboard explainability enhancements (weight snapshot + top drivers)
+- Improved interaction flow:
+  - One-click recommended weight application
+  - One-click weight reset
+  - Warning when both sides select the same neighborhood
+- Better mobile readability with responsive spacing and button layout
 
-## 后续建议
+## Suggested Next Steps
 
-- 接入真实后端 API 与认证流程
-- 增加历史对比记录（保存用户权重组合）
-- 为评分模型补充置信度与数据新鲜度展示
-- 添加端到端测试（Playwright）
+- Connect to real backend APIs and authentication
+- Add comparison history (save weight/profile snapshots)
+- Add confidence and data freshness indicators to scoring
+- Add end-to-end tests (Playwright)
 
 ## License
 
-仅用于课程/原型演示。
+For course and prototype demonstration use only.
