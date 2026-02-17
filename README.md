@@ -1,7 +1,6 @@
 # RentWise Frontend
 
-RentWise is a frontend prototype built with React, TypeScript, Vite, and MUI.
-It focuses on explainable neighborhood comparison by showing objective metrics and AI-generated Reddit perception summaries side by side.
+Frontend prototype built with React, TypeScript, Vite, and MUI.
 
 ## Key Features
 
@@ -36,7 +35,7 @@ npm ci
 npm run dev
 ```
 
-Default local URL (usually):
+Default local URL:
 
 - `http://127.0.0.1:5173`
 
@@ -87,25 +86,3 @@ Rentwise-Frontend/
 ├─ package.json
 └─ vite.config.ts
 ```
-
-## Implemented Frontend Improvements
-
-- Updated visual theme with clearer color hierarchy and card styling
-- Improved typography for better readability and information hierarchy
-- Added dashboard explainability enhancements (weight snapshot + top drivers)
-- Improved interaction flow:
-  - One-click recommended weight application
-  - One-click weight reset
-  - Warning when both sides select the same neighborhood
-- Better mobile readability with responsive spacing and button layout
-
-## Suggested Next Steps
-
-- Connect to real backend APIs and authentication
-- Add comparison history (save weight/profile snapshots)
-- Add confidence and data freshness indicators to scoring
-- Add end-to-end tests (Playwright)
-
-## License
-
-For course and prototype demonstration use only.
