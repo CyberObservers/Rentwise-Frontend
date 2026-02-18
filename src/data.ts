@@ -61,3 +61,12 @@ export const neighborhoods: Neighborhood[] = [
 ]
 
 export const dimensions: Dimension[] = ['safety', 'transit', 'convenience', 'parking', 'environment']
+
+// Map each dimension to a user-friendly label
+export const dimensionLabels: Record<Dimension, string> = {
+  safety: 'Safety',
+  transit: 'Transit',
+  convenience: 'Convenience',
+  parking: 'Parking',
+  environment: 'Environment',
+}
