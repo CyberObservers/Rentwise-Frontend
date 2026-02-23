@@ -2,6 +2,7 @@ import { type Dimension, type Neighborhood } from './types'
 
 export const neighborhoods: Neighborhood[] = [
   {
+    id: 'university-town-center',
     name: 'University Town Center',
     objective: {
       safety: 72,
@@ -21,6 +22,7 @@ export const neighborhoods: Neighborhood[] = [
     tradeoffNote: 'Excellent transit and convenience, but parking pressure is common.',
   },
   {
+    id: 'northwood',
     name: 'Northwood',
     objective: {
       safety: 86,
@@ -39,7 +41,8 @@ export const neighborhoods: Neighborhood[] = [
     redditSampleSize: 59,
     tradeoffNote: 'Strong safety and environment, weaker transit frequency.',
   },
-  {
+  {id: 'costa-mesa-border',
+    
     name: 'Costa Mesa Border',
     objective: {
       safety: 64,
@@ -57,6 +60,46 @@ export const neighborhoods: Neighborhood[] = [
     },
     redditSampleSize: 37,
     tradeoffNote: 'Decent convenience with higher uncertainty in parking data quality.',
+  },
+  {
+    id: 'irvine-spectrum',
+    name: 'Irvine Spectrum',
+    objective: {
+      safety: 80,
+      transit: 85,
+      convenience: 95,
+      parking: 60,
+      environment: 75,
+    },
+    perception: {
+      safety: 'Very safe, well-lit, and patrolled, though busy with visitors.',
+      transit: 'Excellent access to train station and freeways.',
+      convenience: 'Unbeatable access to shopping, dining, and entertainment.',
+      parking: 'Apartment structures have parking, but guest parking is tight.',
+      environment: 'Modern and vibrant, but can be noisy due to freeway and crowds.',
+    },
+    redditSampleSize: 112,
+    tradeoffNote: 'Top-tier convenience and modern living at a higher cost and noise level.',
+  },
+  {
+    id: 'woodbridge',
+    name: 'Woodbridge',
+    objective: {
+      safety: 88,
+      transit: 65,
+      convenience: 78,
+      parking: 80,
+      environment: 92,
+    },
+    perception: {
+      safety: 'Extremely safe, family-oriented feel with active neighborhood watch.',
+      transit: 'Some bus routes, but mostly car-dependent for commuting.',
+      convenience: 'Good access to grocery stores and community centers within the loop.',
+      parking: 'Generally good street and driveway parking options.',
+      environment: 'Beautiful lakes, walking trails, and mature trees define the area.',
+    },
+    redditSampleSize: 78,
+    tradeoffNote: 'Scenic and quiet family atmosphere, but further from major transit hubs.',
   },
 ]
 

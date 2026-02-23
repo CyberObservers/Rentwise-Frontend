@@ -2,6 +2,7 @@ export type Dimension = 'safety' | 'transit' | 'convenience' | 'parking' | 'envi
 export type ProfileType = 'student' | 'professional' | 'family'
 
 export type Neighborhood = {
+  id: string
   name: string
   objective: Record<Dimension, number | null>
   perception: Record<Dimension, string>

@@ -27,9 +27,10 @@ import { Dashboard } from './components/Dashboard'
 import { Header } from './components/Header'
 import { NavigationStepper } from './components/NavigationStepper'
 import { ProfileForm } from './components/ProfileForm'
+import { ReviewPage } from './components/ReviewPage'
 
 // Define the steps for the stepper
-const steps = ['Profile', 'Constraints', 'Dashboard']
+const steps = ['Profile', 'Constraints', 'Dashboard', 'Reviews']
 
 // Create a custom MUI theme
 const theme = createTheme({
@@ -166,6 +167,7 @@ function App() {
   }
 
   const isOnDashboard = activeStep === 2
+  const isOnReviewPage = activeStep === 3
 
   return (
     <ThemeProvider theme={theme}>
@@ -238,6 +240,15 @@ function App() {
             </Fade>
           )}
 
+          {/* Step 4: Community Reviews */}
+          {isOnReviewPage && (
+            <Fade in={isOnReviewPage}>
+              <div>
+                <ReviewPage />
+              </div>
+            </Fade>
+          )}
+
           {/* Navigation Buttons */}
           <Stack direction="row" justifyContent="space-between" sx={{ mt: 2 }}>
             <Button disabled={activeStep === 0} onClick={() => setActiveStep((s) => s - 1)}>
@@ -245,8 +256,8 @@ function App() {
             </Button>
             <Button
               variant="contained"
-              onClick={() => setActiveStep((s) => Math.min(2, s + 1))}
-              disabled={activeStep === 2}
+              onClick={() => setActiveStep((s) => Math.min(3, s + 1))}
+              disabled={activeStep === 3}
             >
               Continue
             </Button>
