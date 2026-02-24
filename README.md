@@ -57,6 +57,25 @@ npm run preview
 npm run lint
 ```
 
+## Run With Docker
+
+### 1) Frontend only: build and start container
+
+```bash
+docker compose -f docker-compose.frontend.yml up --build
+```
+
+### 2) Open in browser
+
+- `http://127.0.0.1:5173`
+
+### 3) Frontend only: stop container
+
+```bash
+docker compose -f docker-compose.frontend.yml down
+```
+
+
 ## NPM Registry Troubleshooting
 
 If you see `ENOTFOUND mirrors.cloud.tencent.com` (or similar), your npm registry is likely set to an unreachable mirror.
