@@ -10,7 +10,7 @@ import {
   alpha,
   useTheme,
 } from '@mui/material'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 type Review = {
   post_id: string
@@ -23,20 +23,28 @@ type CommunityReviewsProps = {
   communityId: string
 }
 
+const ITEMS_PER_PAGE = 5
+
 export function CommunityReviews({ communityId }: CommunityReviewsProps) {
-  const [reviews, setReviews] = useState<Review[]>([])
+  const [allReviews, setAllReviews] = useState<Review[]>([])
+  const [displayedReviews, setDisplayedReviews] = useState<Review[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [page, setPage] = useState(1)
+  const observerTarget = useRef(null)
   const theme = useTheme()
 
+  // Fetch all reviews initially (client-side pagination)
   useEffect(() => {
     if (!communityId) return
 
     const fetchReviews = async () => {
       try {
         setLoading(true)
-        // Adjust the base URL if needed, assuming proxy or same origin usually
-        // If your backend is at 8000 and frontend 5173, you might need full URL
+        setError(null)
+        // Reset pagination when community changes
+        setPage(1)
+        
         const response = await fetch(
           `http://localhost:8000/communities/${communityId}/reviews`
         )
@@ -46,7 +54,8 @@ export function CommunityReviews({ communityId }: CommunityReviewsProps) {
         }
 
         const data = await response.json()
-        setReviews(data)
+        setAllReviews(data)
+        setDisplayedReviews(data.slice(0, ITEMS_PER_PAGE))
       } catch (err: unknown) {
         console.error(err)
         const message = err instanceof Error ? err.message : 'Error loading reviews'
@@ -59,7 +68,41 @@ export function CommunityReviews({ communityId }: CommunityReviewsProps) {
     fetchReviews()
   }, [communityId])
 
-  if (loading) {
+  // Handle loading more items
+  const loadMore = useCallback(() => {
+    const nextPage = page + 1
+    const nextLimit = nextPage * ITEMS_PER_PAGE
+    const nextReviews = allReviews.slice(0, nextLimit)
+    
+    if (displayedReviews.length < allReviews.length) {
+      setDisplayedReviews(nextReviews)
+      setPage(nextPage)
+    }
+  }, [allReviews, displayedReviews.length, page])
+
+  // Intersection Observer for infinite scroll
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && displayedReviews.length < allReviews.length) {
+          loadMore()
+        }
+      },
+      { threshold: 1.0 }
+    )
+
+    if (observerTarget.current) {
+      observer.observe(observerTarget.current)
+    }
+
+    return () => {
+      if (observerTarget.current) {
+        observer.unobserve(observerTarget.current)
+      }
+    }
+  }, [loadMore, displayedReviews.length, allReviews.length])
+
+  if (loading && page === 1) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
         <CircularProgress />
@@ -77,7 +120,7 @@ export function CommunityReviews({ communityId }: CommunityReviewsProps) {
     )
   }
 
-  if (reviews.length === 0) {
+  if (allReviews.length === 0) {
     return (
       <Box
         sx={{
@@ -99,7 +142,7 @@ export function CommunityReviews({ communityId }: CommunityReviewsProps) {
 
   return (
     <Stack spacing={2}>
-      {reviews.map((review) => (
+      {displayedReviews.map((review) => (
         <Card
           key={review.post_id}
           elevation={0}
@@ -144,6 +187,16 @@ export function CommunityReviews({ communityId }: CommunityReviewsProps) {
           </CardContent>
         </Card>
       ))}
+      
+      {/* Loading sentinel */}
+      {displayedReviews.length < allReviews.length && (
+        <Box 
+          ref={observerTarget} 
+          sx={{ display: 'flex', justifyContent: 'center', p: 2 }}
+        >
+          <CircularProgress size={24} />
+        </Box>
+      )}
     </Stack>
   )
 }
