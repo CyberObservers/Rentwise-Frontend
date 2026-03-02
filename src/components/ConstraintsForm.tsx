@@ -1,89 +1,118 @@
 import {
+  Alert,
   Box,
-  Button,
   Card,
   CardContent,
+  Chip,
+  Divider,
+  LinearProgress,
   Slider,
   Stack,
-  Switch,
   Typography,
 } from '@mui/material'
+import { dimensionLabels, dimensions } from '../data'
+import type { Dimension, Neighborhood } from '../types'
 
 type ConstraintsFormProps = {
-  commuteDays: number
-  setCommuteDays: (value: number) => void
-  safetyPriority: number
-  setSafetyPriority: (value: number) => void
-  parkingPriority: boolean
-  setParkingPriority: (value: boolean) => void
-  hasCar: boolean
-  onApplyRecommendedWeights: () => void
-  onResetWeights: () => void
+  selectedNeighborhoodData: Neighborhood
+  weights: Record<Dimension, number>
+  topDrivers: string[]
+  modelPrompt: string
+  onWeightChange: (dimension: Dimension, value: number) => void
 }
 
 export function ConstraintsForm({
-  commuteDays,
-  setCommuteDays,
-  safetyPriority,
-  setSafetyPriority,
-  parkingPriority,
-  setParkingPriority,
-  hasCar,
-  onApplyRecommendedWeights,
-  onResetWeights,
+  selectedNeighborhoodData,
+  weights,
+  topDrivers,
+  modelPrompt,
+  onWeightChange,
 }: ConstraintsFormProps) {
   return (
-    <Card>
-      <CardContent>
-        <Stack spacing={3}>
-          <Typography variant="h6">Adaptive onboarding: constraints</Typography>
+    <Stack spacing={3}>
+      <Card>
+        <CardContent>
+          <Stack spacing={2}>
+            <Typography variant="h6">Step 2: Neighborhood metrics and charts</Typography>
+            <Typography color="text.secondary">
+              Neighborhood in focus: {selectedNeighborhoodData.name}
+            </Typography>
 
-          <Box>
-            <Typography gutterBottom>How many days per week do you commute?</Typography>
-            <Slider
-              value={commuteDays}
-              min={0}
-              max={7}
-              marks
-              step={1}
-              valueLabelDisplay="auto"
-              onChange={(_, value) => setCommuteDays(value as number)}
-            />
-          </Box>
-
-          <Box>
-            <Typography gutterBottom>How important is nighttime safety?</Typography>
-            <Slider
-              value={safetyPriority}
-              min={1}
-              max={5}
-              marks
-              step={1}
-              valueLabelDisplay="auto"
-              onChange={(_, value) => setSafetyPriority(value as number)}
-            />
-          </Box>
-
-          {hasCar && (
-            <Stack direction="row" alignItems="center" justifyContent="space-between">
-              <Typography>Parking availability is a high priority</Typography>
-              <Switch
-                checked={parkingPriority}
-                onChange={(e) => setParkingPriority(e.target.checked)}
-              />
-            </Stack>
-          )}
-
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
-            <Button variant="contained" onClick={onApplyRecommendedWeights}>
-              Apply recommended weights
-            </Button>
-            <Button variant="outlined" onClick={onResetWeights}>
-              Reset to even weights
-            </Button>
+            {dimensions.map((dimension) => {
+              const value = selectedNeighborhoodData.objective[dimension]
+              return (
+                <Box key={dimension}>
+                  <Stack direction="row" justifyContent="space-between">
+                    <Typography>{dimensionLabels[dimension]}</Typography>
+                    <Chip
+                      size="small"
+                      label={value === null ? 'N/A' : `${value}/100`}
+                      color={value === null ? 'default' : 'primary'}
+                      variant={value === null ? 'outlined' : 'filled'}
+                    />
+                  </Stack>
+                  <LinearProgress
+                    variant="determinate"
+                    value={value ?? 0}
+                    sx={{ mt: 1, height: 8, borderRadius: 999 }}
+                  />
+                </Box>
+              )
+            })}
           </Stack>
-        </Stack>
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent>
+          <Stack spacing={2}>
+            <Typography variant="h6">Preference weight tuning (for comparison)</Typography>
+            <Typography color="text.secondary">
+              Top drivers: {topDrivers.join(' • ')}
+            </Typography>
+            {dimensions.map((dimension) => (
+              <Box key={dimension}>
+                <Stack direction="row" justifyContent="space-between" alignItems="center">
+                  <Typography>{dimensionLabels[dimension]}</Typography>
+                  <Chip label={`${weights[dimension]}%`} size="small" />
+                </Stack>
+                <Slider
+                  value={weights[dimension]}
+                  min={5}
+                  max={60}
+                  step={1}
+                  valueLabelDisplay="auto"
+                  onChange={(_, value) => onWeightChange(dimension, value as number)}
+                />
+              </Box>
+            ))}
+          </Stack>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent>
+          <Stack spacing={2}>
+            <Typography variant="h6">LLM insight panel (prototype)</Typography>
+            <Alert severity="info" variant="outlined">
+              This is frontend-only prototype text. You can replace it with real LLM output later.
+            </Alert>
+            <Typography variant="body2" color="text.secondary">
+              User prompt: {modelPrompt || 'No prompt provided. Using default interpretation.'}
+            </Typography>
+            <Divider />
+            <Typography variant="body2">
+              Best fit: renters who prioritize {topDrivers[0]}; this neighborhood performs well for convenience and commute efficiency.
+            </Typography>
+            <Typography variant="body2">
+              Key strength: {selectedNeighborhoodData.perception.convenience}
+            </Typography>
+            <Typography variant="body2">
+              Potential risk: {selectedNeighborhoodData.tradeoffNote}
+            </Typography>
+          </Stack>
+        </CardContent>
+      </Card>
+    </Stack>
   )
 }

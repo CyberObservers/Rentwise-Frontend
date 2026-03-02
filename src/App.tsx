@@ -11,17 +11,13 @@ import type { SelectChangeEvent } from '@mui/material'
 import { useMemo, useState } from 'react'
 import './App.css'
 
-// Import separate data and logic modules
 import { neighborhoods } from './data'
 import {
   getTopDriverDimensions,
   normalizeWeights,
-  recommendedWeightsFromOnboarding,
   scoreNeighborhood,
 } from './logic'
-import type { Dimension, ProfileType } from './types'
-
-// Import new components
+import type { Dimension } from './types'
 import { ConstraintsForm } from './components/ConstraintsForm'
 import { Dashboard } from './components/Dashboard'
 import { Header } from './components/Header'
@@ -29,26 +25,24 @@ import { NavigationStepper } from './components/NavigationStepper'
 import { ProfileForm } from './components/ProfileForm'
 import { ReviewPage } from './components/ReviewPage'
 
-// Define the steps for the stepper
-const steps = ['Profile', 'Constraints', 'Dashboard', 'Reviews']
+const steps = ['Explore', 'Insights', 'Compare', 'Reviews']
 
-// Create a custom MUI theme
 const theme = createTheme({
   palette: {
     mode: 'light',
     primary: {
-      main: '#0B5FFF', // Vibrant blue for primary actions
+      main: '#0B5FFF',
     },
     secondary: {
-      main: '#009D77', // Green for secondary accents
+      main: '#009D77',
     },
     background: {
-      default: '#F3F5FA', // Light gray background
+      default: '#F3F5FA',
       paper: '#FFFFFF',
     },
   },
   shape: {
-    borderRadius: 14, // Softer corners for cards
+    borderRadius: 14,
   },
   typography: {
     fontFamily: 'Manrope, "IBM Plex Sans", "Segoe UI", sans-serif',
@@ -64,100 +58,103 @@ const theme = createTheme({
 })
 
 function App() {
-  // --- State Management ---
-
-  // Stepper state
   const [activeStep, setActiveStep] = useState(0)
-
-  // Profile Step State
-  const [profileType, setProfileType] = useState<ProfileType>('student')
-  const [hasCar, setHasCar] = useState(false)
-  const [sharesHousing, setSharesHousing] = useState(true)
-  const [bikeComfort, setBikeComfort] = useState(true)
-  const [needsQuietArea, setNeedsQuietArea] = useState(false)
-
-  // Constraints Step State
-  const [commuteDays, setCommuteDays] = useState(4)
-  const [safetyPriority, setSafetyPriority] = useState(4)
-  const [parkingPriority, setParkingPriority] = useState(false)
-
-  // Dashboard State
+  const [selectedNeighborhood, setSelectedNeighborhood] = useState(neighborhoods[0].name)
+  const [communityInput, setCommunityInput] = useState('')
+  const [modelPrompt, setModelPrompt] = useState('')
+  const [mapZoom, setMapZoom] = useState(13)
+  const [recommendedNeighborhoodNames, setRecommendedNeighborhoodNames] = useState<string[]>(
+    [],
+  )
+  const [compareEnabled, setCompareEnabled] = useState(false)
   const [leftNeighborhood, setLeftNeighborhood] = useState(neighborhoods[0].name)
   const [rightNeighborhood, setRightNeighborhood] = useState(neighborhoods[1].name)
   const [weights, setWeights] = useState<Record<Dimension, number>>(
-    // Initialize weights based on default profile settings
-    recommendedWeightsFromOnboarding({
-      hasCar: false,
-      commuteDays: 4,
-      safetyPriority: 4,
-      parkingPriority: false,
-      profileType: 'student',
-      sharesHousing: true,
-      bikeComfort: true,
-      needsQuietArea: false,
-    }),
+    {
+      safety: 20,
+      transit: 20,
+      convenience: 20,
+      parking: 20,
+      environment: 20,
+    },
   )
 
-  // --- Derived State (Memoized) ---
+  const visibleNeighborhoods = useMemo(() => {
+    if (mapZoom <= 11) return neighborhoods.slice(0, 3)
+    if (mapZoom <= 13) return neighborhoods.slice(0, 4)
+    return neighborhoods
+  }, [mapZoom])
+
+  const selectedNeighborhoodData = useMemo(
+    () => neighborhoods.find((n) => n.name === selectedNeighborhood) ?? neighborhoods[0],
+    [selectedNeighborhood],
+  )
 
   const leftData = useMemo(
-    () => neighborhoods.find((n) => n.name === leftNeighborhood) ?? neighborhoods[0],
-    [leftNeighborhood],
+    () => neighborhoods.find((n) => n.name === leftNeighborhood) ?? selectedNeighborhoodData,
+    [leftNeighborhood, selectedNeighborhoodData],
   )
   const rightData = useMemo(
     () => neighborhoods.find((n) => n.name === rightNeighborhood) ?? neighborhoods[1],
     [rightNeighborhood],
   )
 
-  // Calculate scores dynamically based on current weights
   const leftScore = useMemo(() => scoreNeighborhood(leftData, weights), [leftData, weights])
   const rightScore = useMemo(() => scoreNeighborhood(rightData, weights), [rightData, weights])
 
-  // Generate a text recommendation summarizing the comparison
   const recommendation = useMemo(() => {
     if (leftScore === rightScore) {
-      return `Both neighborhoods are currently tied at ${leftScore}/100 under your weights.`
+      return `Both neighborhoods are tied at ${leftScore}/100 with your current weights.`
     }
 
     const preferred = leftScore > rightScore ? leftData.name : rightData.name
     const diff = Math.abs(leftScore - rightScore)
-    return `${preferred} leads by ${diff} points based on your personalized objective weighting.`
+    return `${preferred} leads by ${diff} points and better matches the weights you set in Step 2.`
   }, [leftData.name, leftScore, rightData.name, rightScore])
 
-  // Identify leading factors in the current weight configuration
   const topDrivers = useMemo(() => getTopDriverDimensions(weights), [weights])
 
-  // --- Event Handlers ---
-
-  const applyRecommendedWeights = () => {
-    setWeights(
-      recommendedWeightsFromOnboarding({
-        hasCar,
-        commuteDays,
-        safetyPriority,
-        parkingPriority,
-        profileType,
-        sharesHousing,
-        bikeComfort,
-        needsQuietArea,
-      }),
-    )
-  }
-
-  const resetWeights = () => {
-    setWeights({
-      safety: 20,
-      transit: 20,
-      convenience: 20,
-      parking: 20,
-      environment: 20,
-    })
-  }
-
   const handleWeightChange = (dimension: Dimension, value: number) => {
-    // Update one weight and re-normalize the rest to keep sum at 100%
     const draft = { ...weights, [dimension]: value }
     setWeights(normalizeWeights(draft))
+  }
+
+  const handleApplyCommunityInput = () => {
+    const keyword = communityInput.trim().toLowerCase()
+    if (!keyword) return
+    const found = neighborhoods.find((n) => n.name.toLowerCase().includes(keyword))
+    if (found) {
+      setSelectedNeighborhood(found.name)
+      setLeftNeighborhood(found.name)
+    }
+  }
+
+  const handleGenerateRecommendation = () => {
+    const prompt = modelPrompt.toLowerCase()
+    let targetDimension: Dimension = 'convenience'
+
+    if (prompt.includes('safety')) targetDimension = 'safety'
+    if (prompt.includes('transit') || prompt.includes('commute')) targetDimension = 'transit'
+    if (prompt.includes('parking') || prompt.includes('car')) targetDimension = 'parking'
+    if (prompt.includes('quiet') || prompt.includes('environment')) {
+      targetDimension = 'environment'
+    }
+
+    const ranked = [...neighborhoods]
+      .sort(
+        (a, b) =>
+          (b.objective[targetDimension] ?? 0) - (a.objective[targetDimension] ?? 0),
+      )
+      .slice(0, 3)
+
+    setRecommendedNeighborhoodNames(ranked.map((n) => n.name))
+    if (ranked[0]) {
+      setSelectedNeighborhood(ranked[0].name)
+      setLeftNeighborhood(ranked[0].name)
+    }
+    if (ranked[1]) {
+      setRightNeighborhood(ranked[1].name)
+    }
   }
 
   const handleNeighborhoodSelect = (side: 'left' | 'right', event: SelectChangeEvent<string>) => {
@@ -185,16 +182,18 @@ function App() {
             <Fade in={activeStep === 0}>
               <div>
                 <ProfileForm
-                  profileType={profileType}
-                  setProfileType={setProfileType}
-                  hasCar={hasCar}
-                  setHasCar={setHasCar}
-                  sharesHousing={sharesHousing}
-                  setSharesHousing={setSharesHousing}
-                  bikeComfort={bikeComfort}
-                  setBikeComfort={setBikeComfort}
-                  needsQuietArea={needsQuietArea}
-                  setNeedsQuietArea={setNeedsQuietArea}
+                  selectedNeighborhood={selectedNeighborhood}
+                  setSelectedNeighborhood={setSelectedNeighborhood}
+                  communityInput={communityInput}
+                  setCommunityInput={setCommunityInput}
+                  modelPrompt={modelPrompt}
+                  setModelPrompt={setModelPrompt}
+                  mapZoom={mapZoom}
+                  setMapZoom={setMapZoom}
+                  availableNeighborhoods={visibleNeighborhoods}
+                  recommendedNeighborhoodNames={recommendedNeighborhoodNames}
+                  onApplyCommunityInput={handleApplyCommunityInput}
+                  onGenerateRecommendation={handleGenerateRecommendation}
                 />
               </div>
             </Fade>
@@ -205,15 +204,11 @@ function App() {
             <Fade in={activeStep === 1}>
               <div>
                 <ConstraintsForm
-                  commuteDays={commuteDays}
-                  setCommuteDays={setCommuteDays}
-                  safetyPriority={safetyPriority}
-                  setSafetyPriority={setSafetyPriority}
-                  parkingPriority={parkingPriority}
-                  setParkingPriority={setParkingPriority}
-                  hasCar={hasCar}
-                  onApplyRecommendedWeights={applyRecommendedWeights}
-                  onResetWeights={resetWeights}
+                  selectedNeighborhoodData={selectedNeighborhoodData}
+                  weights={weights}
+                  topDrivers={topDrivers}
+                  modelPrompt={modelPrompt}
+                  onWeightChange={handleWeightChange}
                 />
               </div>
             </Fade>
@@ -224,12 +219,11 @@ function App() {
             <Fade in={isOnDashboard}>
               <div>
                 <Dashboard
-                  weights={weights}
-                  topDrivers={topDrivers}
+                  compareEnabled={compareEnabled}
+                  setCompareEnabled={setCompareEnabled}
                   leftNeighborhood={leftNeighborhood}
                   rightNeighborhood={rightNeighborhood}
                   onNeighborhoodChange={handleNeighborhoodSelect}
-                  onWeightChange={handleWeightChange}
                   leftData={leftData}
                   rightData={rightData}
                   leftScore={leftScore}

@@ -31,8 +31,7 @@ export function Header({ topDriver }: HeaderProps) {
         <Stack spacing={1.5}>
           <Typography variant="h4">RentWise Prototype</Typography>
           <Typography color="text.secondary">
-            Explainable neighborhood comparison combining objective API metrics with
-            AI-generated Reddit perception summaries.
+            A rental decision prototype from map exploration to neighborhood insights and side-by-side comparison.
           </Typography>
           <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
             <Chip

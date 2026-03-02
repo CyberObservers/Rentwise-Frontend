@@ -1,33 +1,28 @@
 import {
   Alert,
-  alpha,
   Box,
   Card,
   CardContent,
   Chip,
-  Divider,
   FormControl,
   Grid,
   InputLabel,
-  LinearProgress,
   MenuItem,
   Select,
+  Switch,
   type SelectChangeEvent,
-  Slider,
   Stack,
   Typography,
-  useTheme,
 } from '@mui/material'
-import type { Dimension, Neighborhood } from '../types'
+import type { Neighborhood } from '../types'
 import { dimensionLabels, dimensions, neighborhoods } from '../data'
 
 type DashboardProps = {
-  weights: Record<Dimension, number>
-  topDrivers: string[]
+  compareEnabled: boolean
+  setCompareEnabled: (value: boolean) => void
   leftNeighborhood: string
   rightNeighborhood: string
   onNeighborhoodChange: (side: 'left' | 'right', event: SelectChangeEvent<string>) => void
-  onWeightChange: (dimension: Dimension, value: number) => void
   leftData: Neighborhood
   rightData: Neighborhood
   leftScore: number
@@ -36,253 +31,308 @@ type DashboardProps = {
 }
 
 export function Dashboard({
-  weights,
-  topDrivers,
+  compareEnabled,
+  setCompareEnabled,
   leftNeighborhood,
   rightNeighborhood,
   onNeighborhoodChange,
-  onWeightChange,
   leftData,
   rightData,
   leftScore,
   rightScore,
   recommendation,
 }: DashboardProps) {
-  const theme = useTheme()
   const isSameNeighborhood = leftNeighborhood === rightNeighborhood
+  const statRows = dimensions.map((dimension) => {
+    const leftRaw = leftData.objective[dimension] ?? 0
+    const rightRaw = rightData.objective[dimension] ?? 0
+    const clampToScoreRange = (value: number) => Math.max(0, Math.min(100, value))
+    const leftClamped = clampToScoreRange(leftRaw)
+    const rightClamped = clampToScoreRange(rightRaw)
+
+    return {
+      key: dimension,
+      label: dimensionLabels[dimension],
+      leftValue: leftRaw,
+      rightValue: rightRaw,
+      leftPercent: leftClamped,
+      rightPercent: rightClamped,
+      isLeftWinner: leftRaw > rightRaw,
+      isRightWinner: rightRaw > leftRaw,
+    }
+  })
 
   return (
     <Stack spacing={3}>
-      <Alert severity="info">
-        Objective scores below are API-based metrics. Perception text is AI-generated from
-        Reddit discussions and shown separately.
-      </Alert>
-
-      {/* Weight Snapshot */}
       <Card>
         <CardContent>
           <Stack spacing={2}>
-            <Typography variant="h6">Current weighting snapshot</Typography>
-            <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-              {dimensions.map((dimension) => (
-                <Chip
-                  key={dimension}
-                  label={`${dimensionLabels[dimension]} ${weights[dimension]}%`}
-                  size="small"
-                  color="default"
-                />
-              ))}
+            <Typography variant="h6">Step 3: Neighborhood comparison</Typography>
+            <Stack direction="row" justifyContent="space-between" alignItems="center">
+              <Typography>Enable neighborhood comparison</Typography>
+              <Switch
+                checked={compareEnabled}
+                onChange={(event) => setCompareEnabled(event.target.checked)}
+              />
             </Stack>
-            <Typography variant="body2" color="text.secondary">
-              Top drivers: {topDrivers.join(' • ')}
-            </Typography>
-          </Stack>
-        </CardContent>
-      </Card>
-
-      {/* Neighborhood Selectors */}
-      <Card>
-        <CardContent>
-          <Stack spacing={2}>
-            <Typography variant="h6">Select neighborhoods</Typography>
-            <Grid container spacing={2}>
-              <Grid size={{ xs: 12, md: 6 }}>
-                <FormControl fullWidth>
-                  <InputLabel>Neighborhood A</InputLabel>
-                  <Select
-                    label="Neighborhood A"
-                    value={leftNeighborhood}
-                    onChange={(event) => onNeighborhoodChange('left', event)}
-                  >
-                    {neighborhoods.map((n) => (
-                      <MenuItem key={n.name} value={n.name}>
-                        {n.name}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
-              <Grid size={{ xs: 12, md: 6 }}>
-                <FormControl fullWidth>
-                  <InputLabel>Neighborhood B</InputLabel>
-                  <Select
-                    label="Neighborhood B"
-                    value={rightNeighborhood}
-                    onChange={(event) => onNeighborhoodChange('right', event)}
-                  >
-                    {neighborhoods.map((n) => (
-                      <MenuItem key={n.name} value={n.name}>
-                        {n.name}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
-            </Grid>
-            {isSameNeighborhood && (
-              <Alert severity="warning" variant="outlined">
-                You selected the same neighborhood on both sides. Choose different options
-                to get a meaningful comparison.
+            {!compareEnabled && (
+              <Alert severity="info" variant="outlined">
+                You can continue to the reviews page directly, or enable comparison first.
               </Alert>
             )}
           </Stack>
         </CardContent>
       </Card>
 
-      {/* Fine-tuning Slider Controls */}
-      <Card>
-        <CardContent>
-          <Stack spacing={2}>
-            <Typography variant="h6">Manual weight adjustment</Typography>
-            <Typography color="text.secondary">
-              Override recommended weights to explore trade-offs.
-            </Typography>
-            {dimensions.map((dimension) => (
-              <Box key={dimension}>
-                <Stack
-                  direction="row"
-                  justifyContent="space-between"
-                  alignItems="center"
-                >
-                  <Typography>{dimensionLabels[dimension]}</Typography>
-                  <Chip label={`${weights[dimension]}%`} size="small" />
+      {compareEnabled && (
+        <>
+          <Card>
+            <CardContent>
+              <Stack spacing={2}>
+                <Typography variant="h6">Choose neighborhoods to compare</Typography>
+                <Grid container spacing={2}>
+                  <Grid size={{ xs: 12, md: 6 }}>
+                    <FormControl fullWidth>
+                      <InputLabel>Neighborhood A</InputLabel>
+                      <Select
+                        label="Neighborhood A"
+                        value={leftNeighborhood}
+                        onChange={(event) => onNeighborhoodChange('left', event)}
+                      >
+                        {neighborhoods.map((n) => (
+                          <MenuItem key={n.name} value={n.name}>
+                            {n.name}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid size={{ xs: 12, md: 6 }}>
+                    <FormControl fullWidth>
+                      <InputLabel>Neighborhood B</InputLabel>
+                      <Select
+                        label="Neighborhood B"
+                        value={rightNeighborhood}
+                        onChange={(event) => onNeighborhoodChange('right', event)}
+                      >
+                        {neighborhoods.map((n) => (
+                          <MenuItem key={n.name} value={n.name}>
+                            {n.name}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                </Grid>
+                {isSameNeighborhood && (
+                  <Alert severity="warning" variant="outlined">
+                    You selected the same neighborhood on both sides. Pick different ones for meaningful results.
+                  </Alert>
+                )}
+              </Stack>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent>
+              <Stack spacing={3}>
+                <Stack direction="row" alignItems="center" spacing={2}>
+                  <Box sx={{ flex: 1, textAlign: 'center' }}>
+                    <Typography variant="subtitle1" fontWeight={700}>
+                      {leftData.name}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Match Score {leftScore}/100
+                    </Typography>
+                  </Box>
+                  <Typography
+                    variant="h4"
+                    sx={{ color: 'text.secondary', minWidth: 72, textAlign: 'center' }}
+                  >
+                    VS
+                  </Typography>
+                  <Box sx={{ flex: 1, textAlign: 'center' }}>
+                    <Typography variant="subtitle1" fontWeight={700}>
+                      {rightData.name}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Match Score {rightScore}/100
+                    </Typography>
+                  </Box>
                 </Stack>
-                <Slider
-                  value={weights[dimension]}
-                  min={5}
-                  max={60}
-                  step={1}
-                  color="primary"
-                  onChange={(_, value) => onWeightChange(dimension, value as number)}
-                />
-              </Box>
-            ))}
-          </Stack>
-        </CardContent>
-      </Card>
 
-      {/* Compare Cards Side-by-Side */}
-      <Grid container spacing={2}>
-        {[leftData, rightData].map((neighborhood, index) => {
-          const score = index === 0 ? leftScore : rightScore
-          // Highlight the winner if scores differ
-          const isWinner =
-            (index === 0 && leftScore > rightScore) ||
-            (index === 1 && rightScore > leftScore)
+                <Box
+                  sx={{
+                    p: 2,
+                    borderRadius: 2,
+                    border: '1px solid',
+                    borderColor: 'divider',
+                    backgroundColor: '#F7F9FC',
+                  }}
+                >
+                  <Stack spacing={1.5}>
+                    <Typography variant="subtitle2" fontWeight={700}>
+                      Overall score (0-100)
+                    </Typography>
 
-          return (
-            <Grid key={neighborhood.name} size={{ xs: 12, md: 6 }}>
-              <Card
-                sx={{
-                  height: '100%',
-                  border: isWinner
-                    ? `2px solid ${theme.palette.primary.main}`
-                    : undefined,
-                  boxShadow: isWinner ? 4 : 1,
-                  transition: 'box-shadow 0.3s ease',
-                }}
-              >
-                <CardContent>
-                  <Stack spacing={2}>
-                    <Typography variant="h6">{neighborhood.name}</Typography>
-                    <Box>
+                    <Stack spacing={0.5}>
                       <Stack direction="row" justifyContent="space-between">
-                        <Typography fontWeight={600}>
-                          Personalized objective score
+                        <Typography variant="body2" fontWeight={600}>
+                          {leftData.name}
                         </Typography>
-                        <Typography
-                          fontWeight={700}
-                          color={isWinner ? 'primary.main' : 'text.primary'}
-                        >
-                          {score}/100
+                        <Typography variant="body2" fontWeight={700}>
+                          {leftScore}
                         </Typography>
                       </Stack>
-                      <LinearProgress
-                        variant="determinate"
-                        value={score}
+                      <Box
                         sx={{
-                          mt: 1,
-                          height: 9,
+                          height: 10,
                           borderRadius: 999,
-                          backgroundColor: alpha(theme.palette.primary.main, 0.15),
-                          '& .MuiLinearProgress-bar': {
-                            borderRadius: 999,
-                          },
+                          backgroundColor: '#D9DDE5',
+                          overflow: 'hidden',
                         }}
-                      />
-                    </Box>
+                      >
+                        <Box
+                          sx={{
+                            height: '100%',
+                            width: `${leftScore}%`,
+                            backgroundColor: '#0B5FFF',
+                          }}
+                        />
+                      </Box>
+                    </Stack>
 
-                    <Divider />
-
-                    <Typography variant="subtitle1" fontWeight={600}>
-                      Objective API metrics
-                    </Typography>
-                    {dimensions.map((dimension) => {
-                      const value = neighborhood.objective[dimension]
-                      const display = value === null ? 'N/A' : `${value}/100`
-                      return (
-                        <Stack
-                          key={dimension}
-                          direction="row"
-                          justifyContent="space-between"
-                          alignItems="center"
-                        >
-                          <Typography>{dimensionLabels[dimension]}</Typography>
-                          <Chip
-                            label={display}
-                            color={value === null ? 'default' : 'primary'}
-                            variant={value === null ? 'outlined' : 'filled'}
-                            size="small"
-                          />
-                        </Stack>
-                      )
-                    })}
-
-                    <Divider />
-
-                    <Typography variant="subtitle1" fontWeight={600}>
-                      AI-generated perception summary (Reddit)
-                    </Typography>
-                    <Typography color="text.secondary" variant="body2">
-                      Based on {neighborhood.redditSampleSize} upvote-weighted discussion
-                      snippets.
-                    </Typography>
-                    {dimensions.map((dimension) => (
-                      <Box key={dimension}>
+                    <Stack spacing={0.5}>
+                      <Stack direction="row" justifyContent="space-between">
                         <Typography variant="body2" fontWeight={600}>
-                          {dimensionLabels[dimension]}
+                          {rightData.name}
                         </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          {neighborhood.perception[dimension]}
+                        <Typography variant="body2" fontWeight={700}>
+                          {rightScore}
+                        </Typography>
+                      </Stack>
+                      <Box
+                        sx={{
+                          height: 10,
+                          borderRadius: 999,
+                          backgroundColor: '#D9DDE5',
+                          overflow: 'hidden',
+                        }}
+                      >
+                        <Box
+                          sx={{
+                            height: '100%',
+                            width: `${rightScore}%`,
+                            backgroundColor: '#009D77',
+                          }}
+                        />
+                      </Box>
+                    </Stack>
+                  </Stack>
+                </Box>
+
+                {statRows.map((row) => (
+                  <Stack key={row.key} spacing={0.9}>
+                    <Stack direction="row" alignItems="center">
+                      <Box sx={{ flex: 1 }}>
+                        <Typography
+                          variant="body1"
+                          fontWeight={row.isLeftWinner ? 700 : 500}
+                          textAlign="left"
+                        >
+                          {row.leftValue}
                         </Typography>
                       </Box>
-                    ))}
+                      <Typography
+                        variant="body1"
+                        fontWeight={700}
+                        textAlign="center"
+                        sx={{ width: { xs: 112, md: 160 } }}
+                      >
+                        {row.label}
+                      </Typography>
+                      <Box sx={{ flex: 1 }}>
+                        <Typography
+                          variant="body1"
+                          fontWeight={row.isRightWinner ? 700 : 500}
+                          textAlign="right"
+                        >
+                          {row.rightValue}
+                        </Typography>
+                      </Box>
+                    </Stack>
 
-                    <Alert severity="warning" variant="outlined">
-                      {neighborhood.tradeoffNote}
-                    </Alert>
+                    <Stack direction="row" alignItems="center" spacing={1}>
+                      <Box
+                        sx={{
+                          flex: 1,
+                          position: 'relative',
+                          height: 10,
+                          borderRadius: 999,
+                          backgroundColor: '#D9DDE5',
+                          overflow: 'hidden',
+                        }}
+                      >
+                        <Box
+                          sx={{
+                            position: 'absolute',
+                            right: 0,
+                            top: 0,
+                            bottom: 0,
+                            width: `${row.leftPercent}%`,
+                            backgroundColor: row.isLeftWinner ? '#0B5FFF' : '#8F99AA',
+                          }}
+                        />
+                      </Box>
+
+                      <Box sx={{ width: { xs: 16, md: 24 } }} />
+
+                      <Box
+                        sx={{
+                          flex: 1,
+                          position: 'relative',
+                          height: 10,
+                          borderRadius: 999,
+                          backgroundColor: '#D9DDE5',
+                          overflow: 'hidden',
+                        }}
+                      >
+                        <Box
+                          sx={{
+                            position: 'absolute',
+                            left: 0,
+                            top: 0,
+                            bottom: 0,
+                            width: `${row.rightPercent}%`,
+                            backgroundColor: row.isRightWinner ? '#0B5FFF' : '#8F99AA',
+                          }}
+                        />
+                      </Box>
+                    </Stack>
                   </Stack>
-                </CardContent>
-              </Card>
-            </Grid>
-          )
-        })}
-      </Grid>
+                ))}
 
-      {/* Final Recommendation Card */}
-      <Card>
-        <CardContent>
-          <Stack spacing={1.5}>
-            <Typography variant="h6">Structured trade-off summary</Typography>
-            <Typography>{recommendation}</Typography>
-            <Typography color="text.secondary" variant="body2">
-              This prototype focuses on neighborhood-level decision support and handles
-              incomplete data by excluding missing metrics from weighted score
-              calculations.
-            </Typography>
-          </Stack>
-        </CardContent>
-      </Card>
+                <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                  <Chip
+                    label={leftScore >= rightScore ? `${leftData.name} is leading` : `${rightData.name} is leading`}
+                    color="primary"
+                  />
+                  <Chip label="Head-to-head comparison view" variant="outlined" />
+                </Stack>
+              </Stack>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent>
+              <Stack spacing={1.5}>
+                <Typography variant="h6">Comparison summary (prototype)</Typography>
+                <Typography>{recommendation}</Typography>
+              </Stack>
+            </CardContent>
+          </Card>
+        </>
+      )}
     </Stack>
   )
 }
