@@ -6,27 +6,22 @@ import {
   Chip,
   Divider,
   LinearProgress,
-  Slider,
   Stack,
   Typography,
 } from '@mui/material'
 import { dimensionLabels, dimensions } from '../data'
-import type { Dimension, Neighborhood } from '../types'
+import type { Neighborhood } from '../types'
 
 type ConstraintsFormProps = {
   selectedNeighborhoodData: Neighborhood
-  weights: Record<Dimension, number>
   topDrivers: string[]
   modelPrompt: string
-  onWeightChange: (dimension: Dimension, value: number) => void
 }
 
 export function ConstraintsForm({
   selectedNeighborhoodData,
-  weights,
   topDrivers,
   modelPrompt,
-  onWeightChange,
 }: ConstraintsFormProps) {
   return (
     <Stack spacing={3}>
@@ -34,58 +29,44 @@ export function ConstraintsForm({
         <CardContent>
           <Stack spacing={2}>
             <Typography variant="h6">Step 2: Neighborhood metrics and charts</Typography>
-            <Typography color="text.secondary">
-              Neighborhood in focus: {selectedNeighborhoodData.name}
-            </Typography>
-
+            <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
+              <Typography color="text.secondary">Focus neighborhood:</Typography>
+              <Chip
+                color="primary"
+                label={selectedNeighborhoodData.name}
+                sx={{ fontWeight: 800, fontSize: 14 }}
+              />
+            </Stack>
             {dimensions.map((dimension) => {
               const value = selectedNeighborhoodData.objective[dimension]
+              const normalizedValue = Math.max(0, Math.min(100, value ?? 0))
               return (
                 <Box key={dimension}>
-                  <Stack direction="row" justifyContent="space-between">
-                    <Typography>{dimensionLabels[dimension]}</Typography>
+                  <Stack direction="row" justifyContent="space-between" alignItems="center">
+                    <Typography fontWeight={700}>{dimensionLabels[dimension]}</Typography>
                     <Chip
-                      size="small"
+                      color="primary"
                       label={value === null ? 'N/A' : `${value}/100`}
-                      color={value === null ? 'default' : 'primary'}
-                      variant={value === null ? 'outlined' : 'filled'}
+                      sx={{ fontWeight: 700 }}
                     />
                   </Stack>
                   <LinearProgress
                     variant="determinate"
-                    value={value ?? 0}
-                    sx={{ mt: 1, height: 8, borderRadius: 999 }}
+                    value={normalizedValue}
+                    sx={{
+                      mt: 1,
+                      height: 12,
+                      borderRadius: 999,
+                      backgroundColor: '#B7C6F2',
+                      '& .MuiLinearProgress-bar': {
+                        borderRadius: 999,
+                        backgroundColor: '#2F62EA',
+                      },
+                    }}
                   />
                 </Box>
               )
             })}
-          </Stack>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardContent>
-          <Stack spacing={2}>
-            <Typography variant="h6">Preference weight tuning (for comparison)</Typography>
-            <Typography color="text.secondary">
-              Top drivers: {topDrivers.join(' • ')}
-            </Typography>
-            {dimensions.map((dimension) => (
-              <Box key={dimension}>
-                <Stack direction="row" justifyContent="space-between" alignItems="center">
-                  <Typography>{dimensionLabels[dimension]}</Typography>
-                  <Chip label={`${weights[dimension]}%`} size="small" />
-                </Stack>
-                <Slider
-                  value={weights[dimension]}
-                  min={5}
-                  max={60}
-                  step={1}
-                  valueLabelDisplay="auto"
-                  onChange={(_, value) => onWeightChange(dimension, value as number)}
-                />
-              </Box>
-            ))}
           </Stack>
         </CardContent>
       </Card>
