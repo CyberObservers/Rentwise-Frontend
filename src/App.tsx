@@ -14,13 +14,11 @@ import './App.css'
 import { neighborhoods } from './data'
 import {
   getTopDriverDimensions,
-  normalizeWeights,
   scoreNeighborhood,
 } from './logic'
 import type { Dimension } from './types'
 import { ConstraintsForm } from './components/ConstraintsForm'
 import { Dashboard } from './components/Dashboard'
-import { Header } from './components/Header'
 import { NavigationStepper } from './components/NavigationStepper'
 import { ProfileForm } from './components/ProfileForm'
 import { ReviewPage } from './components/ReviewPage'
@@ -66,7 +64,6 @@ function App() {
   const [recommendedNeighborhoodNames, setRecommendedNeighborhoodNames] = useState<string[]>(
     [],
   )
-  const [compareEnabled, setCompareEnabled] = useState(false)
   const [leftNeighborhood, setLeftNeighborhood] = useState(neighborhoods[0].name)
   const [rightNeighborhood, setRightNeighborhood] = useState(neighborhoods[1].name)
   const [weights, setWeights] = useState<Record<Dimension, number>>(
@@ -109,24 +106,13 @@ function App() {
 
     const preferred = leftScore > rightScore ? leftData.name : rightData.name
     const diff = Math.abs(leftScore - rightScore)
-    return `${preferred} leads by ${diff} points and better matches the weights you set in Step 2.`
+    return `${preferred} leads by ${diff} points and better matches the weights you set in Step 3.`
   }, [leftData.name, leftScore, rightData.name, rightScore])
 
   const topDrivers = useMemo(() => getTopDriverDimensions(weights), [weights])
 
   const handleWeightChange = (dimension: Dimension, value: number) => {
-    const draft = { ...weights, [dimension]: value }
-    setWeights(normalizeWeights(draft))
-  }
-
-  const handleApplyCommunityInput = () => {
-    const keyword = communityInput.trim().toLowerCase()
-    if (!keyword) return
-    const found = neighborhoods.find((n) => n.name.toLowerCase().includes(keyword))
-    if (found) {
-      setSelectedNeighborhood(found.name)
-      setLeftNeighborhood(found.name)
-    }
+    setWeights((prev) => ({ ...prev, [dimension]: value }))
   }
 
   const handleGenerateRecommendation = () => {
@@ -171,9 +157,6 @@ function App() {
       <CssBaseline />
       <Container maxWidth="lg" sx={{ py: { xs: 3, md: 5 } }}>
         <Stack spacing={3}>
-          {/* Header Card */}
-          <Header topDriver={topDrivers[0]} />
-
           {/* Stepper Navigation */}
           <NavigationStepper activeStep={activeStep} steps={steps} />
 
@@ -192,7 +175,6 @@ function App() {
                   setMapZoom={setMapZoom}
                   availableNeighborhoods={visibleNeighborhoods}
                   recommendedNeighborhoodNames={recommendedNeighborhoodNames}
-                  onApplyCommunityInput={handleApplyCommunityInput}
                   onGenerateRecommendation={handleGenerateRecommendation}
                 />
               </div>
@@ -205,10 +187,8 @@ function App() {
               <div>
                 <ConstraintsForm
                   selectedNeighborhoodData={selectedNeighborhoodData}
-                  weights={weights}
                   topDrivers={topDrivers}
                   modelPrompt={modelPrompt}
-                  onWeightChange={handleWeightChange}
                 />
               </div>
             </Fade>
@@ -219,11 +199,12 @@ function App() {
             <Fade in={isOnDashboard}>
               <div>
                 <Dashboard
-                  compareEnabled={compareEnabled}
-                  setCompareEnabled={setCompareEnabled}
+                  weights={weights}
+                  topDrivers={topDrivers}
                   leftNeighborhood={leftNeighborhood}
                   rightNeighborhood={rightNeighborhood}
                   onNeighborhoodChange={handleNeighborhoodSelect}
+                  onWeightChange={handleWeightChange}
                   leftData={leftData}
                   rightData={rightData}
                   leftScore={leftScore}
