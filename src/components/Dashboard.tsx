@@ -164,11 +164,10 @@ export function Dashboard({
                     >
                       +1
                     </Button>
-                  </Stack>
-                  <Stack direction="row" alignItems="center" spacing={1}>
                     <Box
                       sx={{
                         flex: 1,
+                        minWidth: 180,
                         height: 12,
                         borderRadius: 999,
                         backgroundColor: '#D9DDE5',
