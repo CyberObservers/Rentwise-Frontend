@@ -176,6 +176,11 @@ function App() {
 
   // ── Preload community data as user progresses through steps ─────────────────
   useEffect(() => {
+    // Preload all visible neighborhoods so map hover tooltip has rent data
+    visibleNeighborhoods.forEach((n) => loadCommunity(n.id))
+  }, [visibleNeighborhoods, loadCommunity])
+
+  useEffect(() => {
     loadCommunity(selectedNeighborhoodData.id)
   }, [selectedNeighborhoodData.id, loadCommunity])
 
@@ -280,6 +285,7 @@ function App() {
                   availableNeighborhoods={visibleNeighborhoods}
                   recommendedNeighborhoodNames={recommendedNeighborhoodNames}
                   onGenerateRecommendation={handleGenerateRecommendation}
+                  communityDetails={communityDetails}
                 />
               </div>
             </Fade>
