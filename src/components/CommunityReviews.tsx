@@ -432,6 +432,7 @@ export function CommunityReviews({ communityId }: CommunityReviewsProps) {
     <Stack spacing={2}>
       <ReviewWordCloud
         reviews={allReviews}
+        threads={allThreads}
         selectedTerm={selectedTerm}
         onSelectTerm={setSelectedTerm}
         onClearTerm={() => setSelectedTerm(null)}
@@ -503,17 +504,27 @@ export function CommunityReviews({ communityId }: CommunityReviewsProps) {
 
 function ReviewWordCloud({
   reviews,
+  threads,
   selectedTerm,
   onSelectTerm,
   onClearTerm,
 }: {
   reviews: Review[]
+  threads: Thread[]
   selectedTerm: string | null
   onSelectTerm: (term: string) => void
   onClearTerm: () => void
 }) {
   const theme = useTheme()
   const entries = useMemo(() => extractWordCloudEntries(reviews), [reviews])
+  const threadCountByTerm = useMemo(() => {
+    const map = new Map<string, number>()
+    entries.forEach((entry) => {
+      const count = threads.filter((thread) => threadContainsTerm(thread, entry.term)).length
+      map.set(entry.term, count)
+    })
+    return map
+  }, [entries, threads])
 
   if (entries.length === 0) {
     return null
@@ -563,7 +574,7 @@ function ReviewWordCloud({
                       : alpha(theme.palette.background.paper, 0.7),
                     cursor: 'pointer',
                   }}
-                  title={`Mentions: ${entry.mentions}`}
+                  title={`Threads: ${threadCountByTerm.get(entry.term) ?? 0} • Mentions: ${entry.mentions}`}
                   onClick={() => onSelectTerm(entry.term)}
                 >
                   {entry.term}
@@ -587,7 +598,7 @@ function ReviewWordCloud({
                 size="small"
                 color={selectedTerm === entry.term ? 'primary' : 'default'}
                 variant={selectedTerm === entry.term ? 'filled' : 'outlined'}
-                label={`${entry.term} (${entry.mentions})`}
+                label={`${entry.term} (${threadCountByTerm.get(entry.term) ?? 0})`}
                 onClick={() => onSelectTerm(entry.term)}
               />
             ))}
