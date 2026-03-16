@@ -5,6 +5,7 @@ import {
   Card,
   CardContent,
   Chip,
+  CircularProgress,
   FormControl,
   Grid,
   InputAdornment,
@@ -18,6 +19,7 @@ import {
 } from '@mui/material'
 import type { Dimension, Neighborhood } from '../types'
 import { dimensionLabels, dimensions, neighborhoods } from '../data'
+import type { ApiCompareResult } from '../api'
 
 type DashboardProps = {
   weights: Record<Dimension, number>
@@ -31,6 +33,8 @@ type DashboardProps = {
   leftScore: number
   rightScore: number
   recommendation: string
+  compareResult: ApiCompareResult | null
+  compareLoading: boolean
 }
 
 export function Dashboard({
@@ -45,6 +49,8 @@ export function Dashboard({
   leftScore,
   rightScore,
   recommendation,
+  compareResult,
+  compareLoading,
 }: DashboardProps) {
   const isSameNeighborhood = leftNeighborhood === rightNeighborhood
   const usedPoints = dimensions.reduce((sum, dimension) => sum + weights[dimension], 0)
@@ -120,8 +126,8 @@ export function Dashboard({
             {dimensions.map((dimension) => (
               <Box key={dimension}>
                 <Typography fontWeight={700}>{dimensionLabels[dimension]}</Typography>
-                <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 1 }}>
-                  <Stack direction="row" spacing={1.2} alignItems="center">
+                <Stack direction="column" sx={{ mt: 1 }} spacing={1}>
+                  <Stack direction="row" spacing={1.2} alignItems="center" flexWrap="wrap" useFlexGap>
                     <Button
                       variant="outlined"
                       onClick={() => handleAdjustWeight(dimension, -1)}
@@ -162,7 +168,7 @@ export function Dashboard({
                   <Stack direction="row" alignItems="center" spacing={1}>
                     <Box
                       sx={{
-                        width: { xs: 130, md: 420 },
+                        flex: 1,
                         height: 12,
                         borderRadius: 999,
                         backgroundColor: '#D9DDE5',
@@ -427,8 +433,36 @@ export function Dashboard({
       <Card>
         <CardContent>
           <Stack spacing={1.5}>
-            <Typography variant="h6">Comparison summary (prototype)</Typography>
-            <Typography>{recommendation}</Typography>
+            <Typography variant="h6">Comparison summary</Typography>
+            {compareLoading && <CircularProgress size={20} />}
+            {!compareLoading && compareResult && (
+              <>
+                <Typography>{compareResult.short_summary}</Typography>
+                {compareResult.tradeoffs.community_a_strengths.length > 0 && (
+                  <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" alignItems="center">
+                    <Typography variant="body2" color="text.secondary">
+                      {leftData.name} strengths:
+                    </Typography>
+                    {compareResult.tradeoffs.community_a_strengths.map((s) => (
+                      <Chip key={s} size="small" label={s} color="primary" variant="outlined" />
+                    ))}
+                  </Stack>
+                )}
+                {compareResult.tradeoffs.community_b_strengths.length > 0 && (
+                  <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" alignItems="center">
+                    <Typography variant="body2" color="text.secondary">
+                      {rightData.name} strengths:
+                    </Typography>
+                    {compareResult.tradeoffs.community_b_strengths.map((s) => (
+                      <Chip key={s} size="small" label={s} color="secondary" variant="outlined" />
+                    ))}
+                  </Stack>
+                )}
+              </>
+            )}
+            {!compareLoading && !compareResult && (
+              <Typography>{recommendation}</Typography>
+            )}
           </Stack>
         </CardContent>
       </Card>

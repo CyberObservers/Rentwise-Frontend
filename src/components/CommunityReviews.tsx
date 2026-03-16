@@ -333,7 +333,8 @@ export function CommunityReviews({ communityId }: CommunityReviewsProps) {
         setPage(1)
         setDisplayedThreads([])
 
-        const response = await fetch(`http://localhost:8000/communities/${communityId}/reviews`)
+        const apiBase = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
+        const response = await fetch(`${apiBase}/communities/${communityId}/reviews`)
 
         if (!response.ok) {
           throw new Error('Failed to fetch reviews')
