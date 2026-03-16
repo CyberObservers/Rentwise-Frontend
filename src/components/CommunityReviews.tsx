@@ -12,6 +12,7 @@ import {
   useTheme,
 } from '@mui/material'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import cloud from 'd3-cloud'
 
 type Review = {
   post_id: string
@@ -39,8 +40,20 @@ type WordCloudEntry = {
   mentions: number
 }
 
+type CloudLayoutWord = {
+  text: string
+  value: number
+  size: number
+  mentions: number
+  threadCount: number
+  x?: number
+  y?: number
+  rotate?: number
+}
+
 const ITEMS_PER_PAGE = 5
 const MAX_WORDS = 36
+const MIN_CLOUD_WORDS = 14
 const STOP_WORDS = new Set([
   'about', 'after', 'again', 'almost', 'also', 'always', 'am', 'an', 'and', 'any', 'are', 'as',
   'at', 'be', 'because', 'been', 'before', 'being', 'between', 'both', 'but', 'by', 'can',
@@ -200,31 +213,52 @@ function extractWordCloudEntries(reviews: Review[]): WordCloudEntry[] {
     })
   })
 
-  return [...scoreByTerm.entries()]
+  const ranked = [...scoreByTerm.entries()]
     .map(([term, score]) => ({
       term,
       score,
       mentions: mentionsByTerm.get(term) ?? 0,
     }))
-    .filter((item) => item.mentions >= 2 || item.score >= 2.6)
     .sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score
       return b.mentions - a.mentions
     })
-    .slice(0, MAX_WORDS)
+
+  const strict = ranked.filter((item) => item.mentions >= 2 || item.score >= 2.6)
+  if (strict.length >= MIN_CLOUD_WORDS) {
+    return strict.slice(0, MAX_WORDS)
+  }
+
+  // For small datasets, relax thresholds so cloud doesn't look empty.
+  const relaxed = ranked.filter((item) => item.mentions >= 1 || item.score >= 1.2)
+  const merged = [...strict]
+  const seen = new Set(strict.map((item) => item.term))
+  relaxed.forEach((item) => {
+    if (seen.has(item.term)) return
+    if (merged.length >= Math.min(MAX_WORDS, MIN_CLOUD_WORDS)) return
+    seen.add(item.term)
+    merged.push(item)
+  })
+
+  return merged.slice(0, MAX_WORDS)
+}
+
+function escapeRegExp(input: string): string {
+  return input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function buildTermRegex(term: string, flags = 'i'): RegExp {
+  const escaped = escapeRegExp(term.trim()).replace(/\s+/g, '\\s+')
+  return new RegExp(`\\b${escaped}\\b`, flags)
 }
 
 function reviewContainsTerm(review: Review, term: string): boolean {
-  return normalizeReviewText(review.body_text).includes(term.toLowerCase())
+  return buildTermRegex(term).test(normalizeReviewText(review.body_text))
 }
 
 function threadContainsTerm(thread: Thread, term: string): boolean {
   if (reviewContainsTerm(thread.parent, term)) return true
   return thread.replies.some((reply) => reviewContainsTerm(reply, term))
-}
-
-function escapeRegExp(input: string): string {
-  return input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 function uniqueByPostId(reviews: Review[]): Review[] {
@@ -518,6 +552,9 @@ function ReviewWordCloud({
 }) {
   const theme = useTheme()
   const entries = useMemo(() => extractWordCloudEntries(reviews), [reviews])
+  const cloudRef = useRef<HTMLDivElement | null>(null)
+  const [cloudWidth, setCloudWidth] = useState(760)
+  const [layoutWords, setLayoutWords] = useState<CloudLayoutWord[]>([])
   const threadCountByTerm = useMemo(() => {
     const map = new Map<string, number>()
     entries.forEach((entry) => {
@@ -526,62 +563,115 @@ function ReviewWordCloud({
     })
     return map
   }, [entries, threads])
+  const cloudData = useMemo(
+    () => {
+      const maxScore = entries[0]?.score ?? 1
+      const minScore = entries[entries.length - 1]?.score ?? 0
+      const spread = Math.max(maxScore - minScore, 0.01)
+
+      return entries.map((entry) => {
+        const normalized = (entry.score - minScore) / spread
+        const size = Math.round(15 + normalized * 16)
+        return {
+          text: entry.term,
+          value: size,
+          size,
+          mentions: entry.mentions,
+          threadCount: threadCountByTerm.get(entry.term) ?? 0,
+        }
+      })
+    },
+    [entries, threadCountByTerm],
+  )
+  const cloudHeight = entries.length < 10 ? 180 : entries.length < 16 ? 220 : 260
+
+  useEffect(() => {
+    const node = cloudRef.current
+    if (!node) return
+
+    const updateWidth = () => {
+      const width = Math.max(300, Math.floor(node.clientWidth))
+      setCloudWidth(width)
+    }
+
+    updateWidth()
+    const observer = new ResizeObserver(updateWidth)
+    observer.observe(node)
+
+    return () => observer.disconnect()
+  }, [])
+
+  useEffect(() => {
+    if (cloudData.length === 0 || cloudWidth <= 0) {
+      setLayoutWords([])
+      return
+    }
+
+    const width = Math.max(300, cloudWidth - 12)
+    const height = cloudHeight
+    const layout = cloud<CloudLayoutWord>()
+      .size([width, height])
+      .words(cloudData.map((word) => ({ ...word, size: word.value })))
+      .padding(3)
+      .rotate((_word: CloudLayoutWord, index: number) => (index % 8 === 0 ? 90 : 0))
+      .font('Manrope')
+      .fontSize((word: CloudLayoutWord) => word.size)
+      .on('end', (words: CloudLayoutWord[]) => setLayoutWords(words))
+
+    layout.start()
+    return () => layout.stop()
+  }, [cloudData, cloudWidth, cloudHeight])
 
   if (entries.length === 0) {
     return null
   }
-
-  const maxScore = entries[0]?.score ?? 1
-  const minScore = entries[entries.length - 1]?.score ?? 0
-  const spread = Math.max(maxScore - minScore, 0.01)
 
   return (
     <Card elevation={0} sx={{ border: `1px solid ${theme.palette.divider}` }}>
       <CardContent>
         <Stack spacing={1.5}>
           <Box
+            ref={cloudRef}
             sx={{
-              p: 1,
+              p: 1.5,
               borderRadius: 2,
               bgcolor: alpha(theme.palette.primary.light, 0.06),
-              display: 'flex',
-              flexWrap: 'wrap',
-              gap: 1.2,
-              alignItems: 'center',
+              minHeight: cloudHeight + 20,
             }}
           >
-            {entries.map((entry, index) => {
-              const normalized = (entry.score - minScore) / spread
-              const fontSize = 13 + normalized * 18
-              const opacity = 0.55 + normalized * 0.45
-              const rotation = index % 7 === 0 ? '-3deg' : index % 5 === 0 ? '2deg' : '0deg'
-              const tone = index % 3 === 0 ? 'primary.main' : index % 3 === 1 ? 'secondary.main' : 'text.primary'
+            {cloudWidth > 0 && layoutWords.length > 0 && (
+              <svg width="100%" height={cloudHeight} viewBox={`0 0 ${Math.max(300, cloudWidth - 12)} ${cloudHeight}`}>
+                <g transform={`translate(${Math.max(300, cloudWidth - 12) / 2},${cloudHeight / 2})`}>
+                  {layoutWords.map((word, index) => {
+                    const tone = index % 3 === 0
+                      ? theme.palette.primary.main
+                      : index % 3 === 1
+                        ? theme.palette.secondary.main
+                        : theme.palette.text.primary
 
-              return (
-                <Box
-                  key={entry.term}
-                  sx={{
-                    fontSize: `${fontSize}px`,
-                    fontWeight: entry.term.includes(' ') ? 700 : 600,
-                    color: selectedTerm === entry.term ? 'primary.dark' : tone,
-                    opacity,
-                    transform: `rotate(${rotation})`,
-                    lineHeight: 1.1,
-                    px: 0.4,
-                    py: 0.2,
-                    borderRadius: 1,
-                    bgcolor: selectedTerm === entry.term
-                      ? alpha(theme.palette.primary.main, 0.16)
-                      : alpha(theme.palette.background.paper, 0.7),
-                    cursor: 'pointer',
-                  }}
-                  title={`Threads: ${threadCountByTerm.get(entry.term) ?? 0} • Mentions: ${entry.mentions}`}
-                  onClick={() => onSelectTerm(entry.term)}
-                >
-                  {entry.term}
-                </Box>
-              )
-            })}
+                    return (
+                      <text
+                        key={`cloud-${word.text}`}
+                        textAnchor="middle"
+                        transform={`translate(${word.x ?? 0},${word.y ?? 0}) rotate(${word.rotate ?? 0})`}
+                        style={{
+                          fontSize: `${word.size}px`,
+                          fontFamily: 'Manrope, sans-serif',
+                          fill: selectedTerm === word.text ? theme.palette.primary.dark : tone,
+                          cursor: 'pointer',
+                          opacity: selectedTerm && selectedTerm !== word.text ? 0.6 : 0.95,
+                          fontWeight: word.text.includes(' ') ? 700 : 600,
+                        }}
+                        onClick={() => onSelectTerm(word.text)}
+                      >
+                        <title>{`Threads: ${word.threadCount} • Mentions: ${word.mentions}`}</title>
+                        {word.text}
+                      </text>
+                    )
+                  })}
+                </g>
+              </svg>
+            )}
           </Box>
           <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
             {selectedTerm && (
@@ -615,14 +705,14 @@ function HighlightedCommentText({ text, term }: { text: string, term: string | n
     return <>{text}</>
   }
 
-  const normalizedTerm = term.toLowerCase()
-  const regex = new RegExp(`(${escapeRegExp(term)})`, 'gi')
+  const regex = new RegExp(`(${buildTermRegex(term, 'gi').source})`, 'gi')
   const parts = text.split(regex)
+  const exactRegex = buildTermRegex(term)
 
   return (
     <>
       {parts.map((part, index) => (
-        part.toLowerCase() === normalizedTerm
+        exactRegex.test(normalizeReviewText(part))
           ? (
             <Box
               component="mark"
