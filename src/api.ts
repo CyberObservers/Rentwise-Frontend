@@ -109,13 +109,20 @@ export type ChatApiResponse = {
 }
 
 export async function postChat(messages: ChatMessagePayload[]): Promise<ChatApiResponse> {
-  const res = await fetch(`${API_BASE}/chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messages }),
-  })
-  if (!res.ok) throw new Error(`Chat: HTTP ${res.status}`)
-  return res.json() as Promise<ChatApiResponse>
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 30_000)
+  try {
+    const res = await fetch(`${API_BASE}/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages }),
+      signal: controller.signal,
+    })
+    if (!res.ok) throw new Error(`Chat: HTTP ${res.status}`)
+    return await res.json() as ChatApiResponse
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 export async function postCompare(

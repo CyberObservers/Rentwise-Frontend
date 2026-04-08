@@ -95,7 +95,6 @@ function App() {
 
   // ── LLM chat state ──────────────────────────────────────────────────────────
   const [llmWeights, setLlmWeights] = useState<Record<Dimension, number> | null>(null)
-  const [readyToRecommend, setReadyToRecommend] = useState(false)
 
   // ── Community fetching ──────────────────────────────────────────────────────
   const loadCommunity = useCallback(async (id: string) => {
@@ -239,7 +238,6 @@ function App() {
       environment: w.environment ?? 20,
     }
     setLlmWeights(normalizeWeights(resolved))
-    setReadyToRecommend(response.ready_to_recommend)
   }, [])
 
   const handleGenerateRecommendation = () => {
@@ -294,7 +292,6 @@ function App() {
                   recommendedNeighborhoodNames={recommendedNeighborhoodNames}
                   onGenerateRecommendation={handleGenerateRecommendation}
                   onChatResponse={handleChatResponse}
-                  readyToRecommend={readyToRecommend}
                   communityDetails={communityDetails}
                 />
               </div>
