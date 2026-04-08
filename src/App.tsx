@@ -77,8 +77,8 @@ function App() {
   )
 
   const visibleNeighborhoods = useMemo(() => {
-    if (mapZoom <= 11) return neighborhoods.slice(0, 3)
-    if (mapZoom <= 13) return neighborhoods.slice(0, 4)
+    if (mapZoom <= 11) return neighborhoods.slice(0, 4)
+    if (mapZoom <= 13) return neighborhoods.slice(0, 7)
     return neighborhoods
   }, [mapZoom])
 
