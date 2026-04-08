@@ -28,6 +28,7 @@ type ProfileFormProps = {
   onGenerateRecommendation: () => void
   onChatResponse: (response: ChatApiResponse) => void
   communityDetails: Record<string, ApiCommunityDetail>
+  chatRecommendation: { name: string; score: number } | null
 }
 
 type ChatMessage = {
@@ -53,6 +54,7 @@ export function ProfileForm({
   onGenerateRecommendation,
   onChatResponse,
   communityDetails,
+  chatRecommendation,
 }: ProfileFormProps) {
   const chatEndRef = useRef<HTMLDivElement>(null)
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
@@ -141,9 +143,15 @@ export function ProfileForm({
       onChatResponse(response)
     } catch (err) {
       console.error('[chat] error', err)
+      const isTimeout = err instanceof DOMException && err.name === 'TimeoutError'
       setChatMessages((prev) => [
         ...prev,
-        { role: 'assistant', content: 'Sorry, I could not reach the server. Please try again.' },
+        {
+          role: 'assistant',
+          content: isTimeout
+            ? 'The request timed out — the server may be busy. Please try again.'
+            : 'Sorry, I could not reach the server. Please try again.',
+        },
       ])
     } finally {
       console.log('[chat] finally, setting isGenerating=false')
@@ -285,6 +293,15 @@ export function ProfileForm({
     if (!mapRef.current || !selectedPosition) return
     mapRef.current.panTo(selectedPosition)
   }, [selectedPosition])
+
+  // Zoom in and pan when a chat recommendation is set
+  useEffect(() => {
+    if (!mapRef.current || !chatRecommendation) return
+    const pos = neighborhoodCoordinates.get(chatRecommendation.name)
+    if (!pos) return
+    mapRef.current.panTo(pos)
+    mapRef.current.setZoom(14)
+  }, [chatRecommendation, neighborhoodCoordinates])
 
   useEffect(() => {
     const googleMaps = (window as any).google?.maps
@@ -602,6 +619,42 @@ export function ProfileForm({
                   <div ref={chatEndRef} />
                 </Stack>
               </Box>
+
+              {chatRecommendation && (
+                <Box
+                  sx={{
+                    borderRadius: 2,
+                    border: '1.5px solid',
+                    borderColor: 'secondary.main',
+                    p: 1.5,
+                    backgroundColor: 'rgba(0,157,119,0.07)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 1,
+                  }}
+                >
+                  <Box>
+                    <Typography variant="body2" fontWeight={700} color="secondary.main">
+                      Best match: {chatRecommendation.name}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Score {chatRecommendation.score}/100 based on your preferences · Map updated
+                    </Typography>
+                  </Box>
+                  <Button
+                    size="small"
+                    variant="contained"
+                    color="secondary"
+                    onClick={() => {
+                      setSelectedNeighborhood(chatRecommendation.name)
+                      setCommunityInput(chatRecommendation.name)
+                    }}
+                  >
+                    View
+                  </Button>
+                </Box>
+              )}
 
               <TextField
                 multiline
