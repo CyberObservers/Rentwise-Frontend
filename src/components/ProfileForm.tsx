@@ -13,8 +13,8 @@ import {
 } from '@mui/material'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { neighborhoods } from '../data'
-import { postChat, type ApiCommunityDetail, type ChatApiResponse } from '../api'
-import type { Neighborhood } from '../types'
+import { postChat, type ApiCommunityDetail, type ChatApiResponse, type PreferenceWeights } from '../api'
+import type { Dimension, Neighborhood } from '../types'
 
 type ProfileFormProps = {
   selectedNeighborhood: string
@@ -27,7 +27,6 @@ type ProfileFormProps = {
   recommendedNeighborhoodNames: string[]
   onGenerateRecommendation: () => void
   onChatResponse: (response: ChatApiResponse) => void
-  readyToRecommend: boolean
   communityDetails: Record<string, ApiCommunityDetail>
 }
 
@@ -53,9 +52,9 @@ export function ProfileForm({
   recommendedNeighborhoodNames,
   onGenerateRecommendation,
   onChatResponse,
-  readyToRecommend,
   communityDetails,
 }: ProfileFormProps) {
+  const chatEndRef = useRef<HTMLDivElement>(null)
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<any>(null)
   const markersRef = useRef<Record<string, any>>({})
@@ -66,6 +65,7 @@ export function ProfileForm({
   const [mapError, setMapError] = useState<string | null>(null)
   const [isGenerating, setIsGenerating] = useState(false)
   const [chatInput, setChatInput] = useState('')
+  const [localWeights, setLocalWeights] = useState<PreferenceWeights | null>(null)
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
     {
       role: 'assistant',
@@ -105,6 +105,11 @@ export function ProfileForm({
       .filter((item): item is Neighborhood => Boolean(item))
   }, [availableNeighborhoods, neighborhoodByName, recommendedNeighborhoodNames])
 
+  // Auto-scroll chat to bottom on new messages
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [chatMessages, isGenerating])
+
   const syncSelectionFromInput = () => {
     const exactMatch = neighborhoods.find(
       (item) => item.name.toLowerCase() === communityInput.trim().toLowerCase(),
@@ -128,15 +133,20 @@ export function ProfileForm({
     try {
       // Send all messages except the initial greeting (index 0)
       const history = updatedMessages.slice(1)
+      console.log('[chat] sending', history)
       const response = await postChat(history)
+      console.log('[chat] response', response)
       setChatMessages((prev) => [...prev, { role: 'assistant', content: response.reply }])
+      setLocalWeights(response.weights)
       onChatResponse(response)
-    } catch {
+    } catch (err) {
+      console.error('[chat] error', err)
       setChatMessages((prev) => [
         ...prev,
         { role: 'assistant', content: 'Sorry, I could not reach the server. Please try again.' },
       ])
     } finally {
+      console.log('[chat] finally, setting isGenerating=false')
       setIsGenerating(false)
     }
   }
@@ -501,9 +511,49 @@ export function ProfileForm({
               }}
             >
               <Typography variant="h6">LLM Chat</Typography>
-              <Typography variant="body2" color="text.secondary">
-                Chat to share your preferences. When ready, click Apply to rank neighborhoods by your weights.
-              </Typography>
+
+              {/* Preference progress */}
+              {(() => {
+                if (!localWeights) {
+                  return (
+                    <Typography variant="body2" color="text.secondary">
+                      Tell the assistant what matters to you — safety, commute, parking, quiet, or convenience. After a few messages the <strong>Apply</strong> button will unlock.
+                    </Typography>
+                  )
+                }
+                const dimKeys: Dimension[] = ['safety', 'transit', 'convenience', 'parking', 'environment']
+                const dimLabels: Record<Dimension, string> = { safety: 'Safety', transit: 'Transit', convenience: 'Convenience', parking: 'Parking', environment: 'Environment' }
+                const covered = dimKeys.filter((k) => {
+                  const v = localWeights[k]
+                  return v !== null && Math.abs(v - 20) > 5
+                })
+                const hasPreference = covered.length > 0
+                return (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.8 }}>
+                    <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap">
+                      {dimKeys.map((k) => {
+                        const v = localWeights[k]
+                        const active = v !== null && Math.abs(v - 20) > 5
+                        return (
+                          <Chip
+                            key={k}
+                            label={`${dimLabels[k]} ${v !== null ? Math.round(v) + '%' : '—'}`}
+                            size="small"
+                            color={active ? 'primary' : 'default'}
+                            variant={active ? 'filled' : 'outlined'}
+                          />
+                        )
+                      })}
+                    </Stack>
+                    <Typography variant="caption" color={hasPreference ? 'success.main' : 'text.secondary'}>
+                      {hasPreference
+                        ? `✓ ${covered.length}/5 preferences set — Apply is ready`
+                        : `0/5 preferences set — share what matters to you`}
+                    </Typography>
+                  </Box>
+                )
+              })()}
+
               <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
                 {quickPrompts.map((prompt) => (
                   <Chip
@@ -511,23 +561,25 @@ export function ProfileForm({
                     label={prompt}
                     onClick={() => setChatInput(prompt)}
                     variant="outlined"
+                    size="small"
                   />
                 ))}
               </Stack>
 
               <Box
                 sx={{
-                  flex: 1,
+                  height: 280,
                   border: '1px solid',
                   borderColor: 'divider',
                   borderRadius: 2,
                   p: 1.2,
                   backgroundColor: '#F8FAFF',
                   overflowY: 'auto',
-                  minHeight: 260,
+                  display: 'flex',
+                  flexDirection: 'column',
                 }}
               >
-                <Stack spacing={1}>
+                <Stack spacing={1} sx={{ flex: 1 }}>
                   {chatMessages.map((message, index) => (
                     <Box
                       key={`${message.role}-${index}`}
@@ -546,7 +598,8 @@ export function ProfileForm({
                       <Typography variant="body2">{message.content}</Typography>
                     </Box>
                   ))}
-                  {isGenerating && <Chip label="Generating suggestion..." color="secondary" />}
+                  {isGenerating && <Chip label="Thinking..." color="secondary" size="small" />}
+                  <div ref={chatEndRef} />
                 </Stack>
               </Box>
 
@@ -578,6 +631,7 @@ export function ProfileForm({
                       },
                     ])
                     setChatInput('')
+                    setLocalWeights(null)
                     onChatResponse({ reply: '', weights: { safety: null, transit: null, convenience: null, parking: null, environment: null }, ready_to_recommend: false })
                   }}
                 >
@@ -593,21 +647,38 @@ export function ProfileForm({
                 </Button>
               </Stack>
 
-              <Button
-                variant="contained"
-                color="secondary"
-                onClick={onGenerateRecommendation}
-                disabled={!readyToRecommend}
-                sx={readyToRecommend ? {
-                  animation: 'pulse 1.5s ease-in-out 3',
-                  '@keyframes pulse': {
-                    '0%, 100%': { boxShadow: '0 0 0 0 rgba(0,157,119,0.5)' },
-                    '50%': { boxShadow: '0 0 0 8px rgba(0,157,119,0)' },
-                  },
-                } : {}}
-              >
-                Apply Prompt To Recommendations
-              </Button>
+              {(() => {
+                const dimKeys: Dimension[] = ['safety', 'transit', 'convenience', 'parking', 'environment']
+                const hasPreference = localWeights !== null && dimKeys.some((k) => {
+                  const v = localWeights[k]
+                  return v !== null && Math.abs(v - 20) > 5
+                })
+                return (
+                  <Box>
+                    {!hasPreference && (
+                      <Typography variant="caption" color="text.secondary" display="block" textAlign="center" mb={0.5}>
+                        {!localWeights ? 'Chat with the assistant to unlock' : 'Tell us more about your preferences to unlock'}
+                      </Typography>
+                    )}
+                    <Button
+                      fullWidth
+                      variant="contained"
+                      color="secondary"
+                      onClick={onGenerateRecommendation}
+                      disabled={!hasPreference}
+                      sx={hasPreference ? {
+                        animation: 'pulse 1.5s ease-in-out 3',
+                        '@keyframes pulse': {
+                          '0%, 100%': { boxShadow: '0 0 0 0 rgba(0,157,119,0.5)' },
+                          '50%': { boxShadow: '0 0 0 8px rgba(0,157,119,0)' },
+                        },
+                      } : {}}
+                    >
+                      Apply Prompt To Recommendations
+                    </Button>
+                  </Box>
+                )
+              })()}
             </Box>
           </Box>
         </Stack>
