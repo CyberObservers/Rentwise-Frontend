@@ -81,6 +81,12 @@ export function ProfileForm({
         ['Costa Mesa Border', { lat: 33.667, lng: -117.899 }],
         ['Irvine Spectrum', { lat: 33.6505, lng: -117.7437 }],
         ['Woodbridge', { lat: 33.677, lng: -117.7929 }],
+        ['Turtle Rock', { lat: 33.6381, lng: -117.8107 }],
+        ['Portola Springs', { lat: 33.6974, lng: -117.7156 }],
+        ['Great Park', { lat: 33.6673, lng: -117.7243 }],
+        ['Quail Hill', { lat: 33.6495, lng: -117.7750 }],
+        ['Oak Creek', { lat: 33.6719, lng: -117.7754 }],
+        ['Woodbury', { lat: 33.6973, lng: -117.7505 }],
       ]),
     [],
   )
