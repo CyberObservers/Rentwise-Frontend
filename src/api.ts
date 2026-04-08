@@ -110,7 +110,10 @@ export type ChatApiResponse = {
 
 export async function postChat(messages: ChatMessagePayload[]): Promise<ChatApiResponse> {
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), 30_000)
+  const timer = setTimeout(
+    () => controller.abort(new DOMException('Chat request timed out', 'TimeoutError')),
+    60_000,
+  )
   try {
     const res = await fetch(`${API_BASE}/chat`, {
       method: 'POST',

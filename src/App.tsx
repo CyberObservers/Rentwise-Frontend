@@ -95,6 +95,7 @@ function App() {
 
   // ── LLM chat state ──────────────────────────────────────────────────────────
   const [llmWeights, setLlmWeights] = useState<Record<Dimension, number> | null>(null)
+  const [chatRecommendation, setChatRecommendation] = useState<{ name: string; score: number } | null>(null)
 
   // ── Community fetching ──────────────────────────────────────────────────────
   const loadCommunity = useCallback(async (id: string) => {
@@ -237,8 +238,29 @@ function App() {
       parking: w.parking ?? 20,
       environment: w.environment ?? 20,
     }
-    setLlmWeights(normalizeWeights(resolved))
-  }, [])
+    const normalized = normalizeWeights(resolved)
+    setLlmWeights(normalized)
+
+    const hasAnyPreference = (Object.keys(w) as (keyof typeof w)[]).some((k) => {
+      const v = w[k]
+      return v !== null && Math.abs(v - 20) > 3
+    })
+
+    if (response.ready_to_recommend || hasAnyPreference) {
+      const ranked = [...neighborhoods]
+        .map((n) => ({ n, score: scoreNeighborhood(enrichNeighborhood(n), normalized) }))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 3)
+      setRecommendedNeighborhoodNames(ranked.map(({ n }) => n.name))
+      if (ranked[0]) {
+        setSelectedNeighborhood(ranked[0].n.name)
+        setCommunityInput(ranked[0].n.name)
+        setChatRecommendation({ name: ranked[0].n.name, score: Math.round(ranked[0].score) })
+      }
+    } else {
+      setChatRecommendation(null)
+    }
+  }, [enrichNeighborhood])
 
   const handleGenerateRecommendation = () => {
     const activeWeights = llmWeights ?? weights
@@ -293,6 +315,7 @@ function App() {
                   onGenerateRecommendation={handleGenerateRecommendation}
                   onChatResponse={handleChatResponse}
                   communityDetails={communityDetails}
+                  chatRecommendation={chatRecommendation}
                 />
               </div>
             </Fade>
