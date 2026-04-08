@@ -8,15 +8,24 @@ import {
   ThemeProvider,
 } from '@mui/material'
 import type { SelectChangeEvent } from '@mui/material'
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import './App.css'
 
+import {
+  computeDimensionScores,
+  fetchCommunityDetail,
+  mapBackendScoresToFrontend,
+  postCompare,
+  type ApiCommunityDetail,
+  type ApiCompareResult,
+  type ApiMetrics,
+} from './api'
 import { neighborhoods } from './data'
 import {
   getTopDriverDimensions,
   scoreNeighborhood,
 } from './logic'
-import type { Dimension } from './types'
+import type { Dimension, Neighborhood } from './types'
 import { ConstraintsForm } from './components/ConstraintsForm'
 import { Dashboard } from './components/Dashboard'
 import { NavigationStepper } from './components/NavigationStepper'
@@ -76,6 +85,47 @@ function App() {
     },
   )
 
+  // ── API state ───────────────────────────────────────────────────────────────
+  const [communityDetails, setCommunityDetails] = useState<Record<string, ApiCommunityDetail>>({})
+  const [communityLoadingIds, setCommunityLoadingIds] = useState<Set<string>>(new Set())
+  const [compareResult, setCompareResult] = useState<ApiCompareResult | null>(null)
+  const [compareLoading, setCompareLoading] = useState(false)
+
+  // ── Community fetching ──────────────────────────────────────────────────────
+  const loadCommunity = useCallback(async (id: string) => {
+    setCommunityLoadingIds((prev) => {
+      if (prev.has(id)) return prev // already loading
+      const next = new Set(prev)
+      next.add(id)
+      return next
+    })
+
+    try {
+      const detail = await fetchCommunityDetail(id)
+      setCommunityDetails((prev) => ({ ...prev, [id]: detail }))
+    } catch {
+      // silently fall back to hardcoded data
+    } finally {
+      setCommunityLoadingIds((prev) => {
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
+    }
+  }, [])
+
+  // ── Enrichment: overlay backend scores onto hardcoded Neighborhood ──────────
+  const enrichNeighborhood = useCallback(
+    (base: Neighborhood): Neighborhood => {
+      const detail = communityDetails[base.id]
+      if (!detail?.metrics) return base
+      const backendScores = computeDimensionScores(detail.metrics)
+      const mappedObjective = mapBackendScoresToFrontend(backendScores)
+      return { ...base, objective: mappedObjective }
+    },
+    [communityDetails],
+  )
+
   const visibleNeighborhoods = useMemo(() => {
     if (mapZoom <= 11) return neighborhoods.slice(0, 4)
     if (mapZoom <= 13) return neighborhoods.slice(0, 7)
@@ -96,8 +146,21 @@ function App() {
     [rightNeighborhood],
   )
 
-  const leftScore = useMemo(() => scoreNeighborhood(leftData, weights), [leftData, weights])
-  const rightScore = useMemo(() => scoreNeighborhood(rightData, weights), [rightData, weights])
+  const enrichedSelectedData = useMemo(
+    () => enrichNeighborhood(selectedNeighborhoodData),
+    [selectedNeighborhoodData, enrichNeighborhood],
+  )
+  const enrichedLeftData = useMemo(
+    () => enrichNeighborhood(leftData),
+    [leftData, enrichNeighborhood],
+  )
+  const enrichedRightData = useMemo(
+    () => enrichNeighborhood(rightData),
+    [rightData, enrichNeighborhood],
+  )
+
+  const leftScore = useMemo(() => scoreNeighborhood(enrichedLeftData, weights), [enrichedLeftData, weights])
+  const rightScore = useMemo(() => scoreNeighborhood(enrichedRightData, weights), [enrichedRightData, weights])
 
   const recommendation = useMemo(() => {
     if (leftScore === rightScore) {
@@ -110,6 +173,51 @@ function App() {
   }, [leftData.name, leftScore, rightData.name, rightScore])
 
   const topDrivers = useMemo(() => getTopDriverDimensions(weights), [weights])
+
+  // ── Preload community data as user progresses through steps ─────────────────
+  useEffect(() => {
+    // Preload all visible neighborhoods so map hover tooltip has rent data
+    visibleNeighborhoods.forEach((n) => loadCommunity(n.id))
+  }, [visibleNeighborhoods, loadCommunity])
+
+  useEffect(() => {
+    loadCommunity(selectedNeighborhoodData.id)
+  }, [selectedNeighborhoodData.id, loadCommunity])
+
+  useEffect(() => {
+    if (activeStep >= 2) {
+      loadCommunity(leftData.id)
+      loadCommunity(rightData.id)
+    }
+  }, [activeStep, leftData.id, rightData.id, loadCommunity])
+
+  // ── Trigger POST /compare when on Dashboard with two different neighborhoods ─
+  const isOnDashboard = activeStep === 2
+  const isOnReviewPage = activeStep === 3
+
+  useEffect(() => {
+    if (!isOnDashboard) return
+    if (leftData.id === rightData.id) return
+
+    let cancelled = false
+    setCompareLoading(true)
+    setCompareResult(null)
+
+    postCompare(leftData.id, rightData.id)
+      .then((result) => {
+        if (!cancelled) setCompareResult(result)
+      })
+      .catch(() => {
+        // silently fall back to local recommendation
+      })
+      .finally(() => {
+        if (!cancelled) setCompareLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [isOnDashboard, leftData.id, rightData.id])
 
   const handleWeightChange = (dimension: Dimension, value: number) => {
     setWeights((prev) => ({ ...prev, [dimension]: value }))
@@ -149,13 +257,14 @@ function App() {
     if (side === 'right') setRightNeighborhood(value)
   }
 
-  const isOnDashboard = activeStep === 2
-  const isOnReviewPage = activeStep === 3
+  // ── Metrics for ConstraintsForm ─────────────────────────────────────────────
+  const selectedMetrics: ApiMetrics | null =
+    communityDetails[selectedNeighborhoodData.id]?.metrics ?? null
 
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <Container maxWidth="lg" sx={{ py: { xs: 3, md: 5 } }}>
+      <Container maxWidth="xl" sx={{ py: { xs: 2, md: 3 }, px: { xs: 2, md: 4 } }}>
         <Stack spacing={3}>
           {/* Stepper Navigation */}
           <NavigationStepper activeStep={activeStep} steps={steps} />
@@ -176,6 +285,7 @@ function App() {
                   availableNeighborhoods={visibleNeighborhoods}
                   recommendedNeighborhoodNames={recommendedNeighborhoodNames}
                   onGenerateRecommendation={handleGenerateRecommendation}
+                  communityDetails={communityDetails}
                 />
               </div>
             </Fade>
@@ -186,9 +296,10 @@ function App() {
             <Fade in={activeStep === 1}>
               <div>
                 <ConstraintsForm
-                  selectedNeighborhoodData={selectedNeighborhoodData}
+                  selectedNeighborhoodData={enrichedSelectedData}
                   topDrivers={topDrivers}
                   modelPrompt={modelPrompt}
+                  metrics={selectedMetrics}
                 />
               </div>
             </Fade>
@@ -205,11 +316,13 @@ function App() {
                   rightNeighborhood={rightNeighborhood}
                   onNeighborhoodChange={handleNeighborhoodSelect}
                   onWeightChange={handleWeightChange}
-                  leftData={leftData}
-                  rightData={rightData}
+                  leftData={enrichedLeftData}
+                  rightData={enrichedRightData}
                   leftScore={leftScore}
                   rightScore={rightScore}
                   recommendation={recommendation}
+                  compareResult={compareResult}
+                  compareLoading={compareLoading}
                 />
               </div>
             </Fade>

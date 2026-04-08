@@ -27,7 +27,7 @@ export function ReviewPage() {
           <Stack spacing={2}>
             <Typography variant="h6">Community Reviews</Typography>
             <Typography color="text.secondary">
-              See what real residents are saying on Reddit and other platforms.
+              See what real residents are saying on Youtube.
             </Typography>
             
             <FormControl fullWidth>

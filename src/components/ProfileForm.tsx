@@ -13,6 +13,7 @@ import {
 } from '@mui/material'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { neighborhoods } from '../data'
+import type { ApiCommunityDetail } from '../api'
 import type { Dimension, Neighborhood } from '../types'
 
 type ProfileFormProps = {
@@ -27,6 +28,7 @@ type ProfileFormProps = {
   availableNeighborhoods: Neighborhood[]
   recommendedNeighborhoodNames: string[]
   onGenerateRecommendation: () => void
+  communityDetails: Record<string, ApiCommunityDetail>
 }
 
 type ChatMessage = {
@@ -52,12 +54,15 @@ export function ProfileForm({
   availableNeighborhoods,
   recommendedNeighborhoodNames,
   onGenerateRecommendation,
+  communityDetails,
 }: ProfileFormProps) {
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<any>(null)
   const markersRef = useRef<Record<string, any>>({})
   const circlesRef = useRef<Record<string, any>>({})
   const infoWindowRef = useRef<any>(null)
+  const communityDetailsRef = useRef(communityDetails)
+  useEffect(() => { communityDetailsRef.current = communityDetails }, [communityDetails])
   const [mapError, setMapError] = useState<string | null>(null)
   const [isGenerating, setIsGenerating] = useState(false)
   const [chatInput, setChatInput] = useState('')
@@ -222,21 +227,28 @@ export function ProfileForm({
         marker.addListener('click', () => {
           setSelectedNeighborhood(neighborhood.name)
           setCommunityInput(neighborhood.name)
+        })
+
+        marker.addListener('mouseover', () => {
           const safety = neighborhood.objective.safety ?? 0
           const transit = neighborhood.objective.transit ?? 0
+          const rent = communityDetailsRef.current[neighborhood.id]?.metrics?.median_rent
+          const rentLine = rent != null
+            ? `<div style="font-size:12px;color:#4b5563">Median Rent: $${Math.round(rent).toLocaleString()}/mo</div>`
+            : ''
           infoWindowRef.current?.setContent(
-            `
-              <div style="min-width:170px;font-family:Arial,sans-serif">
-                <div style="font-weight:700;margin-bottom:6px">${neighborhood.name}</div>
-                <div style="font-size:12px;color:#4b5563">Safety: ${safety}/100</div>
-                <div style="font-size:12px;color:#4b5563">Transit: ${transit}/100</div>
-              </div>
-            `,
+            `<div style="min-width:170px;font-family:Arial,sans-serif">
+              <div style="font-weight:700;margin-bottom:6px">${neighborhood.name}</div>
+              <div style="font-size:12px;color:#4b5563">Transit: ${transit}/100</div>
+              <div style="font-size:12px;color:#4b5563">Safety: ${safety}/100</div>
+              ${rentLine}
+            </div>`,
           )
-          infoWindowRef.current?.open({
-            anchor: marker,
-            map: mapRef.current,
-          })
+          infoWindowRef.current?.open({ anchor: marker, map: mapRef.current })
+        })
+
+        marker.addListener('mouseout', () => {
+          infoWindowRef.current?.close()
         })
         markersRef.current[neighborhood.name] = marker
         circlesRef.current[neighborhood.name] = circle
