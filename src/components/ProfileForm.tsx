@@ -13,21 +13,21 @@ import {
 } from '@mui/material'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { neighborhoods } from '../data'
-import type { ApiCommunityDetail } from '../api'
-import type { Dimension, Neighborhood } from '../types'
+import { postChat, type ApiCommunityDetail, type ChatApiResponse } from '../api'
+import type { Neighborhood } from '../types'
 
 type ProfileFormProps = {
   selectedNeighborhood: string
   setSelectedNeighborhood: (value: string) => void
   communityInput: string
   setCommunityInput: (value: string) => void
-  modelPrompt: string
-  setModelPrompt: (value: string) => void
   mapZoom: number
   setMapZoom: (value: number) => void
   availableNeighborhoods: Neighborhood[]
   recommendedNeighborhoodNames: string[]
   onGenerateRecommendation: () => void
+  onChatResponse: (response: ChatApiResponse) => void
+  readyToRecommend: boolean
   communityDetails: Record<string, ApiCommunityDetail>
 }
 
@@ -47,13 +47,13 @@ export function ProfileForm({
   setSelectedNeighborhood,
   communityInput,
   setCommunityInput,
-  modelPrompt,
-  setModelPrompt,
   mapZoom,
   setMapZoom,
   availableNeighborhoods,
   recommendedNeighborhoodNames,
   onGenerateRecommendation,
+  onChatResponse,
+  readyToRecommend,
   communityDetails,
 }: ProfileFormProps) {
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
@@ -105,31 +105,6 @@ export function ProfileForm({
       .filter((item): item is Neighborhood => Boolean(item))
   }, [availableNeighborhoods, neighborhoodByName, recommendedNeighborhoodNames])
 
-  const inferTargetDimension = (prompt: string): Dimension => {
-    const normalized = prompt.toLowerCase()
-    if (normalized.includes('safety')) return 'safety'
-    if (normalized.includes('transit') || normalized.includes('commute')) {
-      return 'transit'
-    }
-    if (normalized.includes('parking') || normalized.includes('car')) {
-      return 'parking'
-    }
-    if (normalized.includes('quiet') || normalized.includes('environment')) {
-      return 'environment'
-    }
-    return 'convenience'
-  }
-
-  const buildAssistantReply = (prompt: string) => {
-    const target = inferTargetDimension(prompt)
-    const ranked = [...neighborhoods]
-      .sort((a, b) => (b.objective[target] ?? 0) - (a.objective[target] ?? 0))
-      .slice(0, 3)
-      .map((item) => item.name)
-
-    return `Based on your request, I will prioritize ${target} and recommend: ${ranked.join(', ')}. You can add more detail about budget or commute time.`
-  }
-
   const syncSelectionFromInput = () => {
     const exactMatch = neighborhoods.find(
       (item) => item.name.toLowerCase() === communityInput.trim().toLowerCase(),
@@ -140,20 +115,30 @@ export function ProfileForm({
     }
   }
 
-  const handleSendChat = () => {
+  const handleSendChat = async () => {
     const prompt = chatInput.trim()
     if (!prompt || isGenerating) return
 
-    setChatMessages((prev) => [...prev, { role: 'user', content: prompt }])
+    const userMessage: ChatMessage = { role: 'user', content: prompt }
+    const updatedMessages = [...chatMessages, userMessage]
+    setChatMessages(updatedMessages)
     setChatInput('')
-    setModelPrompt(prompt)
-    onGenerateRecommendation()
     setIsGenerating(true)
 
-    window.setTimeout(() => {
-      setChatMessages((prev) => [...prev, { role: 'assistant', content: buildAssistantReply(prompt) }])
+    try {
+      // Send all messages except the initial greeting (index 0)
+      const history = updatedMessages.slice(1)
+      const response = await postChat(history)
+      setChatMessages((prev) => [...prev, { role: 'assistant', content: response.reply }])
+      onChatResponse(response)
+    } catch {
+      setChatMessages((prev) => [
+        ...prev,
+        { role: 'assistant', content: 'Sorry, I could not reach the server. Please try again.' },
+      ])
+    } finally {
       setIsGenerating(false)
-    }, 500)
+    }
   }
 
   useEffect(() => {
@@ -517,7 +502,7 @@ export function ProfileForm({
             >
               <Typography variant="h6">LLM Chat</Typography>
               <Typography variant="body2" color="text.secondary">
-                Asking here updates the recommendation prompt and triggers the current rule-based recommender.
+                Chat to share your preferences. When ready, click Apply to rank neighborhoods by your weights.
               </Typography>
               <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
                 {quickPrompts.map((prompt) => (
@@ -593,6 +578,7 @@ export function ProfileForm({
                       },
                     ])
                     setChatInput('')
+                    onChatResponse({ reply: '', weights: { safety: null, transit: null, convenience: null, parking: null, environment: null }, ready_to_recommend: false })
                   }}
                 >
                   New Chat
@@ -610,11 +596,15 @@ export function ProfileForm({
               <Button
                 variant="contained"
                 color="secondary"
-                onClick={() => {
-                  if (!modelPrompt.trim()) return
-                  onGenerateRecommendation()
-                }}
-                disabled={!modelPrompt.trim()}
+                onClick={onGenerateRecommendation}
+                disabled={!readyToRecommend}
+                sx={readyToRecommend ? {
+                  animation: 'pulse 1.5s ease-in-out 3',
+                  '@keyframes pulse': {
+                    '0%, 100%': { boxShadow: '0 0 0 0 rgba(0,157,119,0.5)' },
+                    '50%': { boxShadow: '0 0 0 8px rgba(0,157,119,0)' },
+                  },
+                } : {}}
               >
                 Apply Prompt To Recommendations
               </Button>

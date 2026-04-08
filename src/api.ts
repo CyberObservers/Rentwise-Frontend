@@ -87,6 +87,37 @@ export async function fetchCommunityDetail(id: string): Promise<ApiCommunityDeta
   return res.json() as Promise<ApiCommunityDetail>
 }
 
+// ── Chat API ──────────────────────────────────────────────────────────────────
+
+export type ChatMessagePayload = {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export type PreferenceWeights = {
+  safety: number | null
+  transit: number | null
+  convenience: number | null
+  parking: number | null
+  environment: number | null
+}
+
+export type ChatApiResponse = {
+  reply: string
+  weights: PreferenceWeights
+  ready_to_recommend: boolean
+}
+
+export async function postChat(messages: ChatMessagePayload[]): Promise<ChatApiResponse> {
+  const res = await fetch(`${API_BASE}/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messages }),
+  })
+  if (!res.ok) throw new Error(`Chat: HTTP ${res.status}`)
+  return res.json() as Promise<ChatApiResponse>
+}
+
 export async function postCompare(
   communityAId: string,
   communityBId: string,

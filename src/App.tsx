@@ -19,10 +19,12 @@ import {
   type ApiCommunityDetail,
   type ApiCompareResult,
   type ApiMetrics,
+  type ChatApiResponse,
 } from './api'
 import { neighborhoods } from './data'
 import {
   getTopDriverDimensions,
+  normalizeWeights,
   scoreNeighborhood,
 } from './logic'
 import type { Dimension, Neighborhood } from './types'
@@ -68,7 +70,7 @@ function App() {
   const [activeStep, setActiveStep] = useState(0)
   const [selectedNeighborhood, setSelectedNeighborhood] = useState(neighborhoods[0].name)
   const [communityInput, setCommunityInput] = useState('')
-  const [modelPrompt, setModelPrompt] = useState('')
+  const [modelPrompt] = useState('')
   const [mapZoom, setMapZoom] = useState(13)
   const [recommendedNeighborhoodNames, setRecommendedNeighborhoodNames] = useState<string[]>(
     [],
@@ -87,9 +89,13 @@ function App() {
 
   // ── API state ───────────────────────────────────────────────────────────────
   const [communityDetails, setCommunityDetails] = useState<Record<string, ApiCommunityDetail>>({})
-  const [communityLoadingIds, setCommunityLoadingIds] = useState<Set<string>>(new Set())
+  const [, setCommunityLoadingIds] = useState<Set<string>>(new Set())
   const [compareResult, setCompareResult] = useState<ApiCompareResult | null>(null)
   const [compareLoading, setCompareLoading] = useState(false)
+
+  // ── LLM chat state ──────────────────────────────────────────────────────────
+  const [llmWeights, setLlmWeights] = useState<Record<Dimension, number> | null>(null)
+  const [readyToRecommend, setReadyToRecommend] = useState(false)
 
   // ── Community fetching ──────────────────────────────────────────────────────
   const loadCommunity = useCallback(async (id: string) => {
@@ -223,31 +229,35 @@ function App() {
     setWeights((prev) => ({ ...prev, [dimension]: value }))
   }
 
-  const handleGenerateRecommendation = () => {
-    const prompt = modelPrompt.toLowerCase()
-    let targetDimension: Dimension = 'convenience'
-
-    if (prompt.includes('safety')) targetDimension = 'safety'
-    if (prompt.includes('transit') || prompt.includes('commute')) targetDimension = 'transit'
-    if (prompt.includes('parking') || prompt.includes('car')) targetDimension = 'parking'
-    if (prompt.includes('quiet') || prompt.includes('environment')) {
-      targetDimension = 'environment'
+  const handleChatResponse = useCallback((response: ChatApiResponse) => {
+    const w = response.weights
+    const resolved: Record<Dimension, number> = {
+      safety: w.safety ?? 20,
+      transit: w.transit ?? 20,
+      convenience: w.convenience ?? 20,
+      parking: w.parking ?? 20,
+      environment: w.environment ?? 20,
     }
+    setLlmWeights(normalizeWeights(resolved))
+    setReadyToRecommend(response.ready_to_recommend)
+  }, [])
+
+  const handleGenerateRecommendation = () => {
+    const activeWeights = llmWeights ?? weights
 
     const ranked = [...neighborhoods]
-      .sort(
-        (a, b) =>
-          (b.objective[targetDimension] ?? 0) - (a.objective[targetDimension] ?? 0),
-      )
+      .map((n) => ({ n, score: scoreNeighborhood(enrichNeighborhood(n), activeWeights) }))
+      .sort((a, b) => b.score - a.score)
       .slice(0, 3)
 
-    setRecommendedNeighborhoodNames(ranked.map((n) => n.name))
+    setRecommendedNeighborhoodNames(ranked.map(({ n }) => n.name))
+    if (llmWeights) setWeights(llmWeights)
     if (ranked[0]) {
-      setSelectedNeighborhood(ranked[0].name)
-      setLeftNeighborhood(ranked[0].name)
+      setSelectedNeighborhood(ranked[0].n.name)
+      setLeftNeighborhood(ranked[0].n.name)
     }
     if (ranked[1]) {
-      setRightNeighborhood(ranked[1].name)
+      setRightNeighborhood(ranked[1].n.name)
     }
   }
 
@@ -278,13 +288,13 @@ function App() {
                   setSelectedNeighborhood={setSelectedNeighborhood}
                   communityInput={communityInput}
                   setCommunityInput={setCommunityInput}
-                  modelPrompt={modelPrompt}
-                  setModelPrompt={setModelPrompt}
                   mapZoom={mapZoom}
                   setMapZoom={setMapZoom}
                   availableNeighborhoods={visibleNeighborhoods}
                   recommendedNeighborhoodNames={recommendedNeighborhoodNames}
                   onGenerateRecommendation={handleGenerateRecommendation}
+                  onChatResponse={handleChatResponse}
+                  readyToRecommend={readyToRecommend}
                   communityDetails={communityDetails}
                 />
               </div>
