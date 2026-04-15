@@ -56,7 +56,7 @@ export function computeDimensionScores(m: ApiMetrics): Record<string, number> {
   return {
     Cost:        clamp(100 - ((m.median_rent             ?? 2500) / 50)),
     Transit:     clamp(100 - (30                                  * 2.0)), // commute_minutes not in API; use default 30
-    Convenience: clamp((m.grocery_density_per_km2         ?? 8)   * 6.5),
+    Convenience: clamp(40 + ((m.grocery_density_per_km2  ?? 4)    * 7.0)),
     Safety:      clamp(100 - ((m.crime_rate_per_100k      ?? 300) / 5)),
     Trend:       clamp(100 - Math.abs((m.rent_trend_12m_pct ?? 3.0) * 8)),
     Noise:       clamp(100 - ((m.noise_avg_db             ?? 55)  * 1.5)),
