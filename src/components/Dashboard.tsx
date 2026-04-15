@@ -1,18 +1,15 @@
 import {
   Alert,
   Box,
-  Button,
   Card,
   CardContent,
   Chip,
   CircularProgress,
   FormControl,
   Grid,
-  InputAdornment,
   InputLabel,
-  MenuItem,
-  OutlinedInput,
   Select,
+  MenuItem,
   type SelectChangeEvent,
   Stack,
   Typography,
@@ -27,7 +24,6 @@ type DashboardProps = {
   leftNeighborhood: string
   rightNeighborhood: string
   onNeighborhoodChange: (side: 'left' | 'right', event: SelectChangeEvent<string>) => void
-  onWeightChange: (dimension: Dimension, value: number) => void
   leftData: Neighborhood
   rightData: Neighborhood
   leftScore: number
@@ -43,7 +39,6 @@ export function Dashboard({
   leftNeighborhood,
   rightNeighborhood,
   onNeighborhoodChange,
-  onWeightChange,
   leftData,
   rightData,
   leftScore,
@@ -53,29 +48,6 @@ export function Dashboard({
   compareLoading,
 }: DashboardProps) {
   const isSameNeighborhood = leftNeighborhood === rightNeighborhood
-  const usedPoints = dimensions.reduce((sum, dimension) => sum + weights[dimension], 0)
-  const remainingPoints = 100 - usedPoints
-  const topDriverKey = [...dimensions].sort((a, b) => weights[b] - weights[a])[0]
-
-  const handleAdjustWeight = (dimension: Dimension, delta: number) => {
-    const current = weights[dimension]
-    const maxAllowed = current + Math.max(0, remainingPoints)
-    const next = Math.max(0, Math.min(maxAllowed, current + delta))
-    onWeightChange(dimension, next)
-  }
-
-  const handleInputWeight = (dimension: Dimension, rawValue: string) => {
-    const parsed = Number.parseInt(rawValue, 10)
-    if (Number.isNaN(parsed)) {
-      onWeightChange(dimension, 0)
-      return
-    }
-
-    const current = weights[dimension]
-    const maxAllowed = current + Math.max(0, remainingPoints)
-    const next = Math.max(0, Math.min(maxAllowed, parsed))
-    onWeightChange(dimension, next)
-  }
 
   const statRows = dimensions.map((dimension) => {
     const leftRaw = leftData.objective[dimension] ?? 0
@@ -97,97 +69,23 @@ export function Dashboard({
   })
   return (
     <Stack spacing={3}>
-      <Card
-        sx={{
-          border: '2px solid',
-          borderColor: 'secondary.main',
-          boxShadow: '0 6px 16px rgba(0,157,119,0.12)',
-        }}
-      >
+      <Card>
         <CardContent>
-          <Stack spacing={2}>
-            <Typography variant="h6" fontWeight={800}>
-              Preference weight tuning (100-point budget)
+          <Stack spacing={1.5}>
+            <Typography variant="h6">Current priorities</Typography>
+            <Typography color="text.secondary">
+              These weights were tuned in Step 2 and are already applied to the comparison below.
             </Typography>
-            <Typography color="text.secondary">Top drivers: {topDrivers.join(' • ')}</Typography>
             <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-              <Chip label={`Used points: ${usedPoints}/100`} color="primary" />
-              <Chip
-                label={`Remaining points: ${remainingPoints}`}
-                color={remainingPoints === 0 ? 'success' : 'default'}
-                variant={remainingPoints === 0 ? 'filled' : 'outlined'}
-              />
+              <Chip label={`Top drivers: ${topDrivers.join(' • ')}`} color="primary" />
+              {dimensions.map((dimension) => (
+                <Chip
+                  key={dimension}
+                  label={`${dimensionLabels[dimension]} ${weights[dimension]}%`}
+                  variant="outlined"
+                />
+              ))}
             </Stack>
-            {remainingPoints < 0 && (
-              <Alert severity="error" variant="outlined">
-                Total points exceed 100. Reduce one or more dimensions.
-              </Alert>
-            )}
-            {dimensions.map((dimension) => (
-              <Box key={dimension}>
-                <Typography fontWeight={700}>{dimensionLabels[dimension]}</Typography>
-                <Stack direction="column" sx={{ mt: 1 }} spacing={1}>
-                  <Stack direction="row" spacing={1.2} alignItems="center" flexWrap="wrap" useFlexGap>
-                    <Button
-                      variant="outlined"
-                      onClick={() => handleAdjustWeight(dimension, -1)}
-                      disabled={weights[dimension] <= 0}
-                    >
-                      -1
-                    </Button>
-                    <Button
-                      variant="outlined"
-                      onClick={() => handleAdjustWeight(dimension, -5)}
-                      disabled={weights[dimension] <= 0}
-                    >
-                      -5
-                    </Button>
-                    <OutlinedInput
-                      size="small"
-                      value={weights[dimension]}
-                      onChange={(event) => handleInputWeight(dimension, event.target.value)}
-                      inputProps={{ min: 0, max: weights[dimension] + Math.max(0, remainingPoints) }}
-                      endAdornment={<InputAdornment position="end">%</InputAdornment>}
-                      sx={{ width: 110 }}
-                    />
-                    <Button
-                      variant="outlined"
-                      onClick={() => handleAdjustWeight(dimension, 5)}
-                      disabled={remainingPoints <= 0}
-                    >
-                      +5
-                    </Button>
-                    <Button
-                      variant="contained"
-                      onClick={() => handleAdjustWeight(dimension, 1)}
-                      disabled={remainingPoints <= 0}
-                    >
-                      +1
-                    </Button>
-                    <Box
-                      sx={{
-                        flex: 1,
-                        minWidth: 180,
-                        height: 12,
-                        borderRadius: 999,
-                        backgroundColor: '#D9DDE5',
-                        overflow: 'hidden',
-                      }}
-                    >
-                      <Box
-                        sx={{
-                          height: '100%',
-                          width: `${weights[dimension]}%`,
-                          backgroundColor:
-                            dimension === topDriverKey ? '#0B5FFF' : '#8F99AA',
-                        }}
-                      />
-                    </Box>
-                    <Chip label={`${weights[dimension]}%`} sx={{ fontWeight: 700 }} />
-                  </Stack>
-                </Stack>
-              </Box>
-            ))}
           </Stack>
         </CardContent>
       </Card>

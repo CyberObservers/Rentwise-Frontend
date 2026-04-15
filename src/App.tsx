@@ -175,10 +175,20 @@ function App() {
 
     const preferred = leftScore > rightScore ? leftData.name : rightData.name
     const diff = Math.abs(leftScore - rightScore)
-    return `${preferred} leads by ${diff} points and better matches the weights you set in Step 3.`
+    return `${preferred} leads by ${diff} points and better matches the weights you tuned in Step 2.`
   }, [leftData.name, leftScore, rightData.name, rightScore])
 
   const topDrivers = useMemo(() => getTopDriverDimensions(weights), [weights])
+  const recommendationScores = useMemo(
+    () =>
+      Object.fromEntries(
+        neighborhoods.map((neighborhood) => [
+          neighborhood.name,
+          scoreNeighborhood(enrichNeighborhood(neighborhood), weights),
+        ]),
+      ),
+    [enrichNeighborhood, weights],
+  )
 
   // ── Preload community data as user progresses through steps ─────────────────
   useEffect(() => {
@@ -196,6 +206,16 @@ function App() {
       loadCommunity(rightData.id)
     }
   }, [activeStep, leftData.id, rightData.id, loadCommunity])
+
+  useEffect(() => {
+    if (llmWeights) {
+      setWeights(llmWeights)
+    }
+  }, [llmWeights])
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }, [activeStep])
 
   // ── Trigger POST /compare when on Dashboard with two different neighborhoods ─
   const isOnDashboard = activeStep === 2
@@ -225,8 +245,8 @@ function App() {
     }
   }, [isOnDashboard, leftData.id, rightData.id])
 
-  const handleWeightChange = (dimension: Dimension, value: number) => {
-    setWeights((prev) => ({ ...prev, [dimension]: value }))
+  const handleWeightsChange = (nextWeights: Record<Dimension, number>) => {
+    setWeights(nextWeights)
   }
 
   const handleChatResponse = useCallback((response: ChatApiResponse) => {
@@ -263,7 +283,7 @@ function App() {
   }, [enrichNeighborhood])
 
   const handleGenerateRecommendation = () => {
-    const activeWeights = llmWeights ?? weights
+    const activeWeights = weights
 
     const ranked = [...neighborhoods]
       .map((n) => ({ n, score: scoreNeighborhood(enrichNeighborhood(n), activeWeights) }))
@@ -271,7 +291,6 @@ function App() {
       .slice(0, 3)
 
     setRecommendedNeighborhoodNames(ranked.map(({ n }) => n.name))
-    if (llmWeights) setWeights(llmWeights)
     if (ranked[0]) {
       setSelectedNeighborhood(ranked[0].n.name)
       setLeftNeighborhood(ranked[0].n.name)
@@ -316,6 +335,7 @@ function App() {
                   onChatResponse={handleChatResponse}
                   communityDetails={communityDetails}
                   chatRecommendation={chatRecommendation}
+                  recommendationScores={recommendationScores}
                 />
               </div>
             </Fade>
@@ -327,6 +347,9 @@ function App() {
               <div>
                 <ConstraintsForm
                   selectedNeighborhoodData={enrichedSelectedData}
+                  weights={weights}
+                  onWeightsChange={handleWeightsChange}
+                  aiSuggestedWeights={llmWeights}
                   topDrivers={topDrivers}
                   modelPrompt={modelPrompt}
                   metrics={selectedMetrics}
@@ -345,7 +368,6 @@ function App() {
                   leftNeighborhood={leftNeighborhood}
                   rightNeighborhood={rightNeighborhood}
                   onNeighborhoodChange={handleNeighborhoodSelect}
-                  onWeightChange={handleWeightChange}
                   leftData={enrichedLeftData}
                   rightData={enrichedRightData}
                   leftScore={leftScore}

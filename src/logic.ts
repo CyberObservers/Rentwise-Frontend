@@ -138,6 +138,80 @@ export const recommendedWeightsFromOnboarding = (params: OnboardingParams): Reco
   return normalizeWeights(draft)
 }
 
+const clampWeight = (value: number) => Math.max(0, Math.min(100, Math.round(value)))
+
+const distributeWeight = (
+  keys: Dimension[],
+  reference: Record<Dimension, number>,
+  total: number,
+): Record<Dimension, number> => {
+  const safeTotal = Math.max(0, Math.round(total))
+  const result = {} as Record<Dimension, number>
+
+  if (keys.length === 0) return result
+
+  const referenceTotal = keys.reduce((sum, key) => sum + Math.max(0, reference[key]), 0)
+
+  if (referenceTotal === 0) {
+    const base = Math.floor(safeTotal / keys.length)
+    let remainder = safeTotal - base * keys.length
+    keys.forEach((key) => {
+      result[key] = base + (remainder > 0 ? 1 : 0)
+      if (remainder > 0) remainder -= 1
+    })
+    return result
+  }
+
+  const rawAllocations = keys.map((key) => {
+    const raw = (Math.max(0, reference[key]) / referenceTotal) * safeTotal
+    const base = Math.floor(raw)
+    return { key, base, fraction: raw - base }
+  })
+
+  rawAllocations.forEach(({ key, base }) => {
+    result[key] = base
+  })
+
+  let remainder = safeTotal - rawAllocations.reduce((sum, item) => sum + item.base, 0)
+  rawAllocations
+    .sort((a, b) => b.fraction - a.fraction)
+    .forEach(({ key }) => {
+      if (remainder <= 0) return
+      result[key] += 1
+      remainder -= 1
+    })
+
+  return result
+}
+
+export const rebalanceWeights = (
+  weights: Record<Dimension, number>,
+  targetDimension: Dimension,
+  nextValue: number,
+): Record<Dimension, number> => {
+  const targetIndex = dimensions.indexOf(targetDimension)
+  const previousDimensions = dimensions.slice(0, targetIndex)
+  const laterDimensions = dimensions.slice(targetIndex + 1)
+  const fixedTotal = previousDimensions.reduce((sum, dimension) => sum + clampWeight(weights[dimension]), 0)
+  const maxTarget = Math.max(0, 100 - fixedTotal)
+
+  if (laterDimensions.length === 0) {
+    return {
+      ...weights,
+      [targetDimension]: maxTarget,
+    }
+  }
+
+  const clampedTarget = Math.min(clampWeight(nextValue), maxTarget)
+  const redistributed = distributeWeight(laterDimensions, weights, 100 - fixedTotal - clampedTarget)
+
+  return {
+    ...weights,
+    [targetDimension]: clampedTarget,
+    ...redistributed,
+  }
+}
+
 /**
  * Calculates a score (0-100) for a neighborhood based on user weights.
  * Handles null values for missing data points by redistributing weight.
