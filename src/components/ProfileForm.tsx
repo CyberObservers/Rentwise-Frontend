@@ -29,6 +29,7 @@ type ProfileFormProps = {
   onChatResponse: (response: ChatApiResponse) => void
   communityDetails: Record<string, ApiCommunityDetail>
   chatRecommendation: { name: string; score: number } | null
+  recommendationScores: Record<string, number>
 }
 
 type ChatMessage = {
@@ -41,6 +42,43 @@ const quickPrompts = [
   'I care most about safety and quiet. Recommend your top 3.',
   'I have a car, so parking convenience is my top priority.',
 ]
+
+type RgbColor = {
+  r: number
+  g: number
+  b: number
+}
+
+const MAP_LIGHT_RED: RgbColor = { r: 252, g: 211, b: 211 }
+const MAP_DARK_RED: RgbColor = { r: 185, g: 28, b: 28 }
+
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
+
+const interpolateColor = (start: RgbColor, end: RgbColor, progress: number): RgbColor => {
+  const t = clamp(progress, 0, 1)
+  return {
+    r: Math.round(start.r + (end.r - start.r) * t),
+    g: Math.round(start.g + (end.g - start.g) * t),
+    b: Math.round(start.b + (end.b - start.b) * t),
+  }
+}
+
+const darkenColor = (color: RgbColor, amount: number): RgbColor => {
+  const factor = 1 - clamp(amount, 0, 1)
+  return {
+    r: Math.round(color.r * factor),
+    g: Math.round(color.g * factor),
+    b: Math.round(color.b * factor),
+  }
+}
+
+const toRgbString = ({ r, g, b }: RgbColor) => `rgb(${r}, ${g}, ${b})`
+
+const getMapColor = (score: number, isSelected: boolean) => {
+  const normalizedScore = clamp((score - 40) / 60, 0, 1)
+  const baseColor = interpolateColor(MAP_LIGHT_RED, MAP_DARK_RED, normalizedScore)
+  return toRgbString(isSelected ? darkenColor(baseColor, 0.14) : baseColor)
+}
 
 export function ProfileForm({
   selectedNeighborhood,
@@ -55,6 +93,7 @@ export function ProfileForm({
   onChatResponse,
   communityDetails,
   chatRecommendation,
+  recommendationScores,
 }: ProfileFormProps) {
   const chatEndRef = useRef<HTMLDivElement>(null)
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
@@ -63,7 +102,9 @@ export function ProfileForm({
   const circlesRef = useRef<Record<string, any>>({})
   const infoWindowRef = useRef<any>(null)
   const communityDetailsRef = useRef(communityDetails)
+  const recommendationScoresRef = useRef(recommendationScores)
   useEffect(() => { communityDetailsRef.current = communityDetails }, [communityDetails])
+  useEffect(() => { recommendationScoresRef.current = recommendationScores }, [recommendationScores])
   const [mapError, setMapError] = useState<string | null>(null)
   const [isGenerating, setIsGenerating] = useState(false)
   const [chatInput, setChatInput] = useState('')
@@ -74,11 +115,6 @@ export function ProfileForm({
       content: 'Share your budget, commute, and preferences, and I will recommend neighborhoods.',
     },
   ])
-
-  const neighborhoodByName = useMemo(
-    () => new Map(neighborhoods.map((item) => [item.name, item])),
-    [],
-  )
 
   const neighborhoodCoordinates = useMemo(
     () =>
@@ -102,16 +138,11 @@ export function ProfileForm({
   const matchedNeighborhood = neighborhoods.find(
     (item) => item.name.toLowerCase() === communityInput.trim().toLowerCase(),
   )
-
-  const resultNeighborhoods = useMemo(() => {
-    const names =
-      recommendedNeighborhoodNames.length > 0
-        ? recommendedNeighborhoodNames
-        : availableNeighborhoods.map((item) => item.name)
-    return names
-      .map((name) => neighborhoodByName.get(name))
-      .filter((item): item is Neighborhood => Boolean(item))
-  }, [availableNeighborhoods, neighborhoodByName, recommendedNeighborhoodNames])
+  const displayedNeighborhoods = useMemo(() => {
+    if (recommendedNeighborhoodNames.length === 0) return availableNeighborhoods
+    const recommendedSet = new Set(recommendedNeighborhoodNames)
+    return neighborhoods.filter((item) => recommendedSet.has(item.name))
+  }, [availableNeighborhoods, recommendedNeighborhoodNames])
 
   // Auto-scroll chat to bottom on new messages
   useEffect(() => {
@@ -186,6 +217,7 @@ export function ProfileForm({
         zoom: mapZoom,
         mapTypeControl: false,
         streetViewControl: false,
+        gestureHandling: 'cooperative',
       })
 
       mapRef.current.addListener('zoom_changed', () => {
@@ -202,13 +234,15 @@ export function ProfileForm({
         if (!position) return
 
         const isSelected = neighborhood.name === selectedNeighborhood
+        const score = recommendationScores[neighborhood.name] ?? 0
+        const mapColor = getMapColor(score, isSelected)
         const marker = new googleMaps.Marker({
           map: mapRef.current,
           position,
           title: neighborhood.name,
           icon: {
             path: googleMaps.SymbolPath.CIRCLE,
-            fillColor: isSelected ? '#0B5FFF' : '#4C9AFF',
+            fillColor: mapColor,
             fillOpacity: 1,
             strokeColor: '#FFFFFF',
             strokeWeight: 2,
@@ -220,9 +254,9 @@ export function ProfileForm({
           map: mapRef.current,
           center: position,
           radius: isSelected ? 1200 : 850,
-          fillColor: isSelected ? '#0B5FFF' : '#4C9AFF',
+          fillColor: mapColor,
           fillOpacity: isSelected ? 0.18 : 0.1,
-          strokeColor: isSelected ? '#0B5FFF' : '#4C9AFF',
+          strokeColor: mapColor,
           strokeOpacity: 0.8,
           strokeWeight: isSelected ? 2 : 1,
         })
@@ -235,6 +269,7 @@ export function ProfileForm({
         marker.addListener('mouseover', () => {
           const safety = neighborhood.objective.safety ?? 0
           const transit = neighborhood.objective.transit ?? 0
+          const overallScore = recommendationScoresRef.current[neighborhood.name] ?? 0
           const rent = communityDetailsRef.current[neighborhood.id]?.metrics?.median_rent
           const rentLine = rent != null
             ? `<div style="font-size:12px;color:#4b5563">Median Rent: $${Math.round(rent).toLocaleString()}/mo</div>`
@@ -242,6 +277,7 @@ export function ProfileForm({
           infoWindowRef.current?.setContent(
             `<div style="min-width:170px;font-family:Arial,sans-serif">
               <div style="font-weight:700;margin-bottom:6px">${neighborhood.name}</div>
+              <div style="font-size:12px;color:#4b5563">Recommendation Score: ${overallScore}/100</div>
               <div style="font-size:12px;color:#4b5563">Transit: ${transit}/100</div>
               <div style="font-size:12px;color:#4b5563">Safety: ${safety}/100</div>
               ${rentLine}
@@ -316,10 +352,12 @@ export function ProfileForm({
     Object.entries(markersRef.current).forEach(([name, marker]) => {
       const isVisible = availableNeighborhoods.some((n) => n.name === name)
       const isSelected = name === selectedNeighborhood
+      const score = recommendationScores[name] ?? 0
+      const mapColor = getMapColor(score, isSelected)
       marker.setVisible(isVisible)
       marker.setIcon({
         path: googleMaps.SymbolPath.CIRCLE,
-        fillColor: isSelected ? '#0B5FFF' : '#4C9AFF',
+        fillColor: mapColor,
         fillOpacity: 1,
         strokeColor: '#FFFFFF',
         strokeWeight: 2,
@@ -330,16 +368,18 @@ export function ProfileForm({
     Object.entries(circlesRef.current).forEach(([name, circle]) => {
       const isVisible = availableNeighborhoods.some((n) => n.name === name)
       const isSelected = name === selectedNeighborhood
+      const score = recommendationScores[name] ?? 0
+      const mapColor = getMapColor(score, isSelected)
       circle.setVisible(isVisible)
       circle.setOptions({
         radius: isSelected ? 1200 : 850,
-        fillColor: isSelected ? '#0B5FFF' : '#4C9AFF',
+        fillColor: mapColor,
         fillOpacity: isSelected ? 0.18 : 0.1,
-        strokeColor: isSelected ? '#0B5FFF' : '#4C9AFF',
+        strokeColor: mapColor,
         strokeWeight: isSelected ? 2 : 1,
       })
     })
-  }, [availableNeighborhoods, selectedNeighborhood])
+  }, [availableNeighborhoods, recommendationScores, selectedNeighborhood])
 
   return (
     <Card>
@@ -437,7 +477,7 @@ export function ProfileForm({
                     }}
                   />
                   <Typography color="text.secondary" variant="body2">
-                    Zoom or click map markers to switch neighborhoods and sync the results panel.
+                    Use two fingers to move or zoom the map, or click a marker to switch neighborhoods.
                   </Typography>
                   <Slider
                     value={mapZoom}
@@ -449,7 +489,7 @@ export function ProfileForm({
                     onChange={(_, value) => setMapZoom(value as number)}
                   />
                   <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-                    {availableNeighborhoods.map((n) => (
+                    {displayedNeighborhoods.map((n) => (
                       <Chip
                         key={n.id}
                         label={n.name}
@@ -464,60 +504,6 @@ export function ProfileForm({
                 </Stack>
               </Box>
 
-              <Box
-                sx={{
-                  border: '1px solid',
-                  borderColor: 'divider',
-                  borderRadius: 2,
-                  p: 2,
-                  backgroundColor: 'background.paper',
-                }}
-              >
-                <Stack spacing={1.2}>
-                  <Typography fontWeight={700}>Result Name</Typography>
-                  {resultNeighborhoods.length === 0 && (
-                    <Alert severity="info" variant="outlined">
-                      Enter your needs or send a chat message to get neighborhood recommendations.
-                    </Alert>
-                  )}
-                  <Box sx={{ maxHeight: 190, overflowY: 'auto', pr: 0.5 }}>
-                    <Stack spacing={1}>
-                      {resultNeighborhoods.map((item) => (
-                        <Box
-                          key={item.id}
-                          sx={{
-                            borderRadius: 1.5,
-                            border: '1px solid',
-                            borderColor: selectedNeighborhood === item.name ? 'primary.main' : 'divider',
-                            p: 1.2,
-                            backgroundColor:
-                              selectedNeighborhood === item.name ? 'rgba(11,95,255,0.06)' : '#FFFFFF',
-                          }}
-                        >
-                          <Stack direction="row" justifyContent="space-between" spacing={1}>
-                            <Box>
-                              <Typography fontWeight={700}>{item.name}</Typography>
-                              <Typography variant="body2" color="text.secondary">
-                                Safety {item.objective.safety} | Transit {item.objective.transit}
-                              </Typography>
-                            </Box>
-                            <Button
-                              size="small"
-                              variant="outlined"
-                              onClick={() => {
-                                setSelectedNeighborhood(item.name)
-                                setCommunityInput(item.name)
-                              }}
-                            >
-                              View
-                            </Button>
-                          </Stack>
-                        </Box>
-                      ))}
-                    </Stack>
-                  </Box>
-                </Stack>
-              </Box>
             </Stack>
 
             <Box

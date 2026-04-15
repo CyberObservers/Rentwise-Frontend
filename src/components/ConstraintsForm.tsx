@@ -11,6 +11,7 @@ import {
 import { dimensionLabels, dimensions } from '../data'
 import type { ApiMetrics } from '../api'
 import type { Dimension, Neighborhood } from '../types'
+import { WeightEditorCard } from './WeightEditorCard'
 
 function getBestFitProfile(objective: Record<Dimension, number | null>): string {
   const sorted = [...dimensions]
@@ -33,6 +34,9 @@ function getMatchChip(score: number | null): { label: string; color: 'success' |
 
 type ConstraintsFormProps = {
   selectedNeighborhoodData: Neighborhood
+  weights: Record<Dimension, number>
+  onWeightsChange: (nextWeights: Record<Dimension, number>) => void
+  aiSuggestedWeights: Record<Dimension, number> | null
   topDrivers: string[]
   modelPrompt: string
   metrics: ApiMetrics | null
@@ -63,16 +67,31 @@ function formatMetricLine(dim: Dimension, metrics: ApiMetrics): string | null {
 
 export function ConstraintsForm({
   selectedNeighborhoodData,
+  weights,
+  onWeightsChange,
+  aiSuggestedWeights,
   topDrivers,
   modelPrompt,
   metrics,
 }: ConstraintsFormProps) {
   return (
     <Stack spacing={3}>
+      <WeightEditorCard
+        title="Step 2: Tune what matters most"
+        description={
+          aiSuggestedWeights
+            ? 'We prefilled these weights from your LLM chat. Adjust any number with the slider, buttons, or direct input and the rest will rebalance automatically.'
+            : 'Adjust any number with the slider, buttons, or direct input and the rest will rebalance automatically. If you use the LLM chat first, its suggested weights will appear here automatically.'
+        }
+        weights={weights}
+        onChange={onWeightsChange}
+        aiSuggestedWeights={aiSuggestedWeights}
+      />
+
       <Card>
         <CardContent>
           <Stack spacing={2}>
-            <Typography variant="h6">Step 2: Neighborhood metrics and charts</Typography>
+            <Typography variant="h6">Neighborhood metrics and charts</Typography>
             <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
               <Typography color="text.secondary">Focus neighborhood:</Typography>
               <Chip
