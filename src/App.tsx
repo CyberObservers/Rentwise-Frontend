@@ -8,18 +8,22 @@ import {
   ThemeProvider,
 } from '@mui/material'
 import type { SelectChangeEvent } from '@mui/material'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 
 import {
-  computeDimensionScores,
-  fetchCommunityDetail,
-  mapBackendScoresToFrontend,
-  postCompare,
   type ApiCommunityDetail,
+  type ApiCommunityInsight,
   type ApiCompareResult,
   type ApiMetrics,
+  type ApiRecommendationItem,
   type ChatApiResponse,
+  computeDimensionScores,
+  fetchCommunityDetail,
+  fetchCommunityInsight,
+  mapBackendScoresToFrontend,
+  postCompare,
+  postRecommend,
 } from './api'
 import { neighborhoods } from './data'
 import {
@@ -35,6 +39,69 @@ import { ProfileForm } from './components/ProfileForm'
 import { ReviewPage } from './components/ReviewPage'
 
 const steps = ['Explore', 'Insights', 'Compare', 'Reviews']
+const DEFAULT_WEIGHTS: Record<Dimension, number> = {
+  safety: 20,
+  transit: 20,
+  convenience: 20,
+  parking: 20,
+  environment: 20,
+}
+
+function buildStaticRecommendationPreview(
+  activeWeights: Record<Dimension, number>,
+): ApiRecommendationItem[] {
+  return [...neighborhoods]
+    .map((neighborhood) => {
+      const weightedContribution = (dimension: Dimension) => {
+        const value = neighborhood.objective[dimension]
+        if (value == null) return null
+        return Math.round(value * activeWeights[dimension]) / 100
+      }
+
+      return {
+        rank: 0,
+        community_id: neighborhood.id,
+        name: neighborhood.name,
+        city: null,
+        state: null,
+        score: scoreNeighborhood(neighborhood, activeWeights),
+        overall_confidence: null,
+        dimension_scores: {
+          safety: neighborhood.objective.safety,
+          transit: neighborhood.objective.transit,
+          convenience: neighborhood.objective.convenience,
+          parking: neighborhood.objective.parking,
+          environment: neighborhood.objective.environment,
+        },
+        weighted_contributions: {
+          safety: weightedContribution('safety'),
+          transit: weightedContribution('transit'),
+          convenience: weightedContribution('convenience'),
+          parking: weightedContribution('parking'),
+          environment: weightedContribution('environment'),
+        },
+        metrics: {
+          median_rent: null,
+          grocery_density_per_km2: null,
+          crime_rate_per_100k: null,
+          noise_avg_db: null,
+          night_activity_index: null,
+          commute_minutes: null,
+        },
+      }
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3)
+    .map((item, index) => ({ ...item, rank: index + 1 }))
+}
+
+const INITIAL_DEFAULT_RECOMMENDATIONS = buildStaticRecommendationPreview(DEFAULT_WEIGHTS)
+const INITIAL_SELECTED_NEIGHBORHOOD =
+  INITIAL_DEFAULT_RECOMMENDATIONS[0]?.name ?? neighborhoods[0].name
+const INITIAL_RIGHT_NEIGHBORHOOD =
+  INITIAL_DEFAULT_RECOMMENDATIONS.find((item) => item.name !== INITIAL_SELECTED_NEIGHBORHOOD)?.name
+  ?? neighborhoods.find((item) => item.name !== INITIAL_SELECTED_NEIGHBORHOOD)?.name
+  ?? neighborhoods[1].name
 
 const theme = createTheme({
   palette: {
@@ -68,37 +135,47 @@ const theme = createTheme({
 
 function App() {
   const [activeStep, setActiveStep] = useState(0)
-  const [selectedNeighborhood, setSelectedNeighborhood] = useState(neighborhoods[0].name)
+  const [selectedNeighborhood, setSelectedNeighborhood] = useState(INITIAL_SELECTED_NEIGHBORHOOD)
   const [communityInput, setCommunityInput] = useState('')
   const [modelPrompt] = useState('')
   const [mapZoom, setMapZoom] = useState(13)
-  const [recommendedNeighborhoodNames, setRecommendedNeighborhoodNames] = useState<string[]>(
+  const [recommendedCommunities, setRecommendedCommunities] = useState<ApiRecommendationItem[]>(
     [],
   )
-  const [leftNeighborhood, setLeftNeighborhood] = useState(neighborhoods[0].name)
-  const [rightNeighborhood, setRightNeighborhood] = useState(neighborhoods[1].name)
-  const [weights, setWeights] = useState<Record<Dimension, number>>(
-    {
-      safety: 20,
-      transit: 20,
-      convenience: 20,
-      parking: 20,
-      environment: 20,
-    },
-  )
+  const [leftNeighborhood, setLeftNeighborhood] = useState(INITIAL_SELECTED_NEIGHBORHOOD)
+  const [rightNeighborhood, setRightNeighborhood] = useState(INITIAL_RIGHT_NEIGHBORHOOD)
+  const [weights, setWeights] = useState<Record<Dimension, number>>(DEFAULT_WEIGHTS)
 
   // ── API state ───────────────────────────────────────────────────────────────
   const [communityDetails, setCommunityDetails] = useState<Record<string, ApiCommunityDetail>>({})
+  const [communityRequestedIds, setCommunityRequestedIds] = useState<Set<string>>(new Set())
   const [, setCommunityLoadingIds] = useState<Set<string>>(new Set())
+  const [communityInsights, setCommunityInsights] = useState<Record<string, ApiCommunityInsight>>(
+    {},
+  )
+  const [communityInsightRequestedIds, setCommunityInsightRequestedIds] = useState<Set<string>>(
+    new Set(),
+  )
+  const [communityInsightLoadingIds, setCommunityInsightLoadingIds] = useState<Set<string>>(
+    new Set(),
+  )
   const [compareResult, setCompareResult] = useState<ApiCompareResult | null>(null)
   const [compareLoading, setCompareLoading] = useState(false)
 
   // ── LLM chat state ──────────────────────────────────────────────────────────
   const [llmWeights, setLlmWeights] = useState<Record<Dimension, number> | null>(null)
-  const [chatRecommendation, setChatRecommendation] = useState<{ name: string; score: number } | null>(null)
+  const [recommendationsLoading, setRecommendationsLoading] = useState(false)
+  const recommendationRequestIdRef = useRef(0)
 
   // ── Community fetching ──────────────────────────────────────────────────────
   const loadCommunity = useCallback(async (id: string) => {
+    if (communityDetails[id] || communityRequestedIds.has(id)) return
+
+    setCommunityRequestedIds((prev) => {
+      const next = new Set(prev)
+      next.add(id)
+      return next
+    })
     setCommunityLoadingIds((prev) => {
       if (prev.has(id)) return prev // already loading
       const next = new Set(prev)
@@ -118,7 +195,35 @@ function App() {
         return next
       })
     }
-  }, [])
+  }, [communityDetails, communityRequestedIds])
+
+  const loadCommunityInsight = useCallback(async (id: string) => {
+    if (communityInsightRequestedIds.has(id)) return
+
+    setCommunityInsightRequestedIds((prev) => {
+      const next = new Set(prev)
+      next.add(id)
+      return next
+    })
+    setCommunityInsightLoadingIds((prev) => {
+      const next = new Set(prev)
+      next.add(id)
+      return next
+    })
+
+    try {
+      const insight = await fetchCommunityInsight(id)
+      setCommunityInsights((prev) => ({ ...prev, [id]: insight }))
+    } catch {
+      // silently fall back to local copy
+    } finally {
+      setCommunityInsightLoadingIds((prev) => {
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
+    }
+  }, [communityInsightRequestedIds])
 
   // ── Enrichment: overlay backend scores onto hardcoded Neighborhood ──────────
   const enrichNeighborhood = useCallback(
@@ -190,6 +295,119 @@ function App() {
     [enrichNeighborhood, weights],
   )
 
+  const buildLocalRecommendationPreview = useCallback(
+    (activeWeights: Record<Dimension, number>): ApiRecommendationItem[] =>
+      [...neighborhoods]
+        .map((neighborhood) => {
+          const enriched = enrichNeighborhood(neighborhood)
+          const score = scoreNeighborhood(enriched, activeWeights)
+          const metrics = communityDetails[neighborhood.id]?.metrics ?? null
+          const weightedContribution = (dimension: Dimension) => {
+            const value = enriched.objective[dimension]
+            if (value == null) return null
+            return Math.round(value * activeWeights[dimension]) / 100
+          }
+
+          return {
+            rank: 0,
+            community_id: neighborhood.id,
+            name: neighborhood.name,
+            city: null,
+            state: null,
+            score,
+            overall_confidence: metrics?.overall_confidence ?? null,
+            dimension_scores: {
+              safety: enriched.objective.safety,
+              transit: enriched.objective.transit,
+              convenience: enriched.objective.convenience,
+              parking: enriched.objective.parking,
+              environment: enriched.objective.environment,
+            },
+            weighted_contributions: {
+              safety: weightedContribution('safety'),
+              transit: weightedContribution('transit'),
+              convenience: weightedContribution('convenience'),
+              parking: weightedContribution('parking'),
+              environment: weightedContribution('environment'),
+            },
+            metrics: {
+              median_rent: metrics?.median_rent ?? null,
+              grocery_density_per_km2: metrics?.grocery_density_per_km2 ?? null,
+              crime_rate_per_100k: metrics?.crime_rate_per_100k ?? null,
+              noise_avg_db: metrics?.noise_avg_db ?? null,
+              night_activity_index: metrics?.night_activity_index ?? null,
+              commute_minutes: null,
+            },
+          }
+        })
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 3)
+        .map((item, index) => ({ ...item, rank: index + 1 })),
+    [communityDetails, enrichNeighborhood],
+  )
+  const defaultRecommendationPreview = useMemo(
+    () => buildLocalRecommendationPreview(DEFAULT_WEIGHTS),
+    [buildLocalRecommendationPreview],
+  )
+  const displayedRecommendedCommunities = useMemo(
+    () => (recommendedCommunities.length > 0 ? recommendedCommunities : defaultRecommendationPreview),
+    [defaultRecommendationPreview, recommendedCommunities],
+  )
+
+  const applyRecommendedCommunities = useCallback(
+    (items: ApiRecommendationItem[], updateCompareSelections = false) => {
+      const topChoice = items[0]
+      if (!topChoice) return
+
+      setSelectedNeighborhood(topChoice.name)
+      setCommunityInput(topChoice.name)
+
+      if (!updateCompareSelections) return
+
+      setLeftNeighborhood(topChoice.name)
+      const secondaryChoice =
+        items.find((item) => item.name !== topChoice.name)?.name
+        ?? neighborhoods.find((item) => item.name !== topChoice.name)?.name
+        ?? topChoice.name
+      setRightNeighborhood(secondaryChoice)
+    },
+    [],
+  )
+
+  const requestRecommendations = useCallback(
+    async (
+      activeWeights: Record<Dimension, number>,
+      options?: { updateCompareSelections?: boolean },
+    ) => {
+      const requestId = recommendationRequestIdRef.current + 1
+      recommendationRequestIdRef.current = requestId
+      setRecommendationsLoading(true)
+
+      try {
+        const response = await postRecommend(activeWeights, 3)
+        if (recommendationRequestIdRef.current !== requestId) return
+
+        const items = response.ranked_communities
+        setRecommendedCommunities(items)
+        applyRecommendedCommunities(items, options?.updateCompareSelections ?? false)
+      } catch {
+        if (recommendationRequestIdRef.current !== requestId) return
+
+        const fallbackItems = buildLocalRecommendationPreview(activeWeights)
+        setRecommendedCommunities(fallbackItems)
+        applyRecommendedCommunities(
+          fallbackItems,
+          options?.updateCompareSelections ?? false,
+        )
+      } finally {
+        if (recommendationRequestIdRef.current === requestId) {
+          setRecommendationsLoading(false)
+        }
+      }
+    },
+    [applyRecommendedCommunities, buildLocalRecommendationPreview],
+  )
+
   // ── Preload community data as user progresses through steps ─────────────────
   useEffect(() => {
     // Preload all visible neighborhoods so map hover tooltip has rent data
@@ -199,6 +417,11 @@ function App() {
   useEffect(() => {
     loadCommunity(selectedNeighborhoodData.id)
   }, [selectedNeighborhoodData.id, loadCommunity])
+
+  useEffect(() => {
+    if (activeStep < 1) return
+    loadCommunityInsight(selectedNeighborhoodData.id)
+  }, [activeStep, selectedNeighborhoodData.id, loadCommunityInsight])
 
   useEffect(() => {
     if (activeStep >= 2) {
@@ -249,7 +472,7 @@ function App() {
     setWeights(nextWeights)
   }
 
-  const handleChatResponse = useCallback((response: ChatApiResponse) => {
+  const handleChatResponse = useCallback(async (response: ChatApiResponse) => {
     const w = response.weights
     const resolved: Record<Dimension, number> = {
       safety: w.safety ?? 20,
@@ -267,38 +490,14 @@ function App() {
     })
 
     if (response.ready_to_recommend || hasAnyPreference) {
-      const ranked = [...neighborhoods]
-        .map((n) => ({ n, score: scoreNeighborhood(enrichNeighborhood(n), normalized) }))
-        .sort((a, b) => b.score - a.score)
-        .slice(0, 3)
-      setRecommendedNeighborhoodNames(ranked.map(({ n }) => n.name))
-      if (ranked[0]) {
-        setSelectedNeighborhood(ranked[0].n.name)
-        setCommunityInput(ranked[0].n.name)
-        setChatRecommendation({ name: ranked[0].n.name, score: Math.round(ranked[0].score) })
-      }
+      await requestRecommendations(normalized, { updateCompareSelections: true })
     } else {
-      setChatRecommendation(null)
+      recommendationRequestIdRef.current += 1
+      setRecommendationsLoading(false)
+      setRecommendedCommunities([])
+      applyRecommendedCommunities(defaultRecommendationPreview, true)
     }
-  }, [enrichNeighborhood])
-
-  const handleGenerateRecommendation = () => {
-    const activeWeights = weights
-
-    const ranked = [...neighborhoods]
-      .map((n) => ({ n, score: scoreNeighborhood(enrichNeighborhood(n), activeWeights) }))
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 3)
-
-    setRecommendedNeighborhoodNames(ranked.map(({ n }) => n.name))
-    if (ranked[0]) {
-      setSelectedNeighborhood(ranked[0].n.name)
-      setLeftNeighborhood(ranked[0].n.name)
-    }
-    if (ranked[1]) {
-      setRightNeighborhood(ranked[1].n.name)
-    }
-  }
+  }, [applyRecommendedCommunities, defaultRecommendationPreview, requestRecommendations])
 
   const handleNeighborhoodSelect = (side: 'left' | 'right', event: SelectChangeEvent<string>) => {
     const value = event.target.value
@@ -309,6 +508,9 @@ function App() {
   // ── Metrics for ConstraintsForm ─────────────────────────────────────────────
   const selectedMetrics: ApiMetrics | null =
     communityDetails[selectedNeighborhoodData.id]?.metrics ?? null
+  const selectedInsight: ApiCommunityInsight | null =
+    communityInsights[selectedNeighborhoodData.id] ?? null
+  const selectedInsightLoading = communityInsightLoadingIds.has(selectedNeighborhoodData.id)
 
   return (
     <ThemeProvider theme={theme}>
@@ -330,11 +532,10 @@ function App() {
                   mapZoom={mapZoom}
                   setMapZoom={setMapZoom}
                   availableNeighborhoods={visibleNeighborhoods}
-                  recommendedNeighborhoodNames={recommendedNeighborhoodNames}
-                  onGenerateRecommendation={handleGenerateRecommendation}
+                  recommendationItems={displayedRecommendedCommunities}
+                  recommendationsLoading={recommendationsLoading}
                   onChatResponse={handleChatResponse}
                   communityDetails={communityDetails}
-                  chatRecommendation={chatRecommendation}
                   recommendationScores={recommendationScores}
                 />
               </div>
@@ -350,9 +551,10 @@ function App() {
                   weights={weights}
                   onWeightsChange={handleWeightsChange}
                   aiSuggestedWeights={llmWeights}
-                  topDrivers={topDrivers}
                   modelPrompt={modelPrompt}
                   metrics={selectedMetrics}
+                  insight={selectedInsight}
+                  insightLoading={selectedInsightLoading}
                 />
               </div>
             </Fade>
