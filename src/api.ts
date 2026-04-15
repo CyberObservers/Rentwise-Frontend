@@ -33,6 +33,21 @@ export type ApiCommunityDetail = {
   metrics: ApiMetrics | null
 }
 
+export type ApiInsightDimension = {
+  dimension: Dimension
+  commentary: string
+}
+
+export type ApiCommunityInsight = {
+  community_id: string
+  name: string
+  city: string | null
+  state: string | null
+  posts_analyzed: number
+  dimensions: ApiInsightDimension[]
+  overall_commentary: string
+}
+
 export type ApiCompareResult = {
   comparison_id: string
   community_a_id: string
@@ -44,6 +59,36 @@ export type ApiCompareResult = {
     community_a_strengths: string[]
     community_b_strengths: string[]
   }
+}
+
+export type ApiRecommendationMetricsPreview = {
+  median_rent: number | null
+  grocery_density_per_km2: number | null
+  crime_rate_per_100k: number | null
+  noise_avg_db: number | null
+  night_activity_index: number | null
+  commute_minutes: number | null
+}
+
+export type ApiRecommendationItem = {
+  rank: number
+  community_id: string
+  name: string
+  city: string | null
+  state: string | null
+  score: number
+  overall_confidence: number | null
+  dimension_scores: PreferenceWeights
+  weighted_contributions: PreferenceWeights
+  metrics: ApiRecommendationMetricsPreview
+}
+
+export type ApiRecommendationResponse = {
+  weights_used: PreferenceWeights
+  total_candidates: number
+  scored_communities: number
+  skipped_missing_metrics: number
+  ranked_communities: ApiRecommendationItem[]
 }
 
 // ── Scoring formula (replicates scoring_service.py exactly) ──────────────────
@@ -85,6 +130,35 @@ export async function fetchCommunityDetail(id: string): Promise<ApiCommunityDeta
   const res = await fetch(`${API_BASE}/communities/${id}`)
   if (!res.ok) throw new Error(`Community ${id}: HTTP ${res.status}`)
   return res.json() as Promise<ApiCommunityDetail>
+}
+
+export async function fetchCommunityInsight(
+  id: string,
+  maxReviews = 20,
+): Promise<ApiCommunityInsight> {
+  const res = await fetch(`${API_BASE}/communities/${id}/insight`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ max_reviews: maxReviews }),
+  })
+  if (!res.ok) throw new Error(`Community insight ${id}: HTTP ${res.status}`)
+  return res.json() as Promise<ApiCommunityInsight>
+}
+
+export async function postRecommend(
+  weights?: Record<string, number>,
+  topK = 3,
+): Promise<ApiRecommendationResponse> {
+  const res = await fetch(`${API_BASE}/recommend`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      weights: weights ?? {},
+      top_k: topK,
+    }),
+  })
+  if (!res.ok) throw new Error(`Recommend: HTTP ${res.status}`)
+  return res.json() as Promise<ApiRecommendationResponse>
 }
 
 // ── Chat API ──────────────────────────────────────────────────────────────────

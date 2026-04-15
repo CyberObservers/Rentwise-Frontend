@@ -6,6 +6,7 @@ import {
   Card,
   CardContent,
   Chip,
+  InputBase,
   Slider,
   Stack,
   TextField,
@@ -13,7 +14,13 @@ import {
 } from '@mui/material'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { neighborhoods } from '../data'
-import { postChat, type ApiCommunityDetail, type ChatApiResponse, type PreferenceWeights } from '../api'
+import {
+  postChat,
+  type ApiCommunityDetail,
+  type ApiRecommendationItem,
+  type ChatApiResponse,
+  type PreferenceWeights,
+} from '../api'
 import type { Dimension, Neighborhood } from '../types'
 
 type ProfileFormProps = {
@@ -24,17 +31,32 @@ type ProfileFormProps = {
   mapZoom: number
   setMapZoom: (value: number) => void
   availableNeighborhoods: Neighborhood[]
-  recommendedNeighborhoodNames: string[]
-  onGenerateRecommendation: () => void
-  onChatResponse: (response: ChatApiResponse) => void
+  recommendationItems: ApiRecommendationItem[]
+  recommendationsLoading: boolean
+  onChatResponse: (response: ChatApiResponse) => Promise<void> | void
   communityDetails: Record<string, ApiCommunityDetail>
-  chatRecommendation: { name: string; score: number } | null
   recommendationScores: Record<string, number>
 }
 
 type ChatMessage = {
   role: 'assistant' | 'user'
   content: string
+}
+
+const DEFAULT_PREFERENCE_WEIGHTS: PreferenceWeights = {
+  safety: 20,
+  transit: 20,
+  convenience: 20,
+  parking: 20,
+  environment: 20,
+}
+const PREFERENCE_DIMENSIONS: Dimension[] = ['safety', 'transit', 'convenience', 'parking', 'environment']
+const PREFERENCE_LABELS: Record<Dimension, string> = {
+  safety: 'Safety',
+  transit: 'Transit',
+  convenience: 'Convenience',
+  parking: 'Parking',
+  environment: 'Environment',
 }
 
 const quickPrompts = [
@@ -49,8 +71,14 @@ type RgbColor = {
   b: number
 }
 
-const MAP_LIGHT_RED: RgbColor = { r: 252, g: 211, b: 211 }
-const MAP_DARK_RED: RgbColor = { r: 185, g: 28, b: 28 }
+const MAP_LIGHT_RED: RgbColor = { r: 248, g: 113, b: 113 }
+const MAP_DARK_RED: RgbColor = { r: 153, g: 27, b: 27 }
+const RECOMMENDATION_GREEN: RgbColor = { r: 16, g: 185, b: 129 }
+const RECOMMENDATION_MARKER_COLORS: Record<number, RgbColor> = {
+  1: RECOMMENDATION_GREEN,
+  2: RECOMMENDATION_GREEN,
+  3: RECOMMENDATION_GREEN,
+}
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
 
@@ -77,8 +105,77 @@ const toRgbString = ({ r, g, b }: RgbColor) => `rgb(${r}, ${g}, ${b})`
 const getMapColor = (score: number, isSelected: boolean) => {
   const normalizedScore = clamp((score - 40) / 60, 0, 1)
   const baseColor = interpolateColor(MAP_LIGHT_RED, MAP_DARK_RED, normalizedScore)
-  return toRgbString(isSelected ? darkenColor(baseColor, 0.14) : baseColor)
+  return toRgbString(isSelected ? darkenColor(baseColor, 0.08) : baseColor)
 }
+
+const getMarkerStyle = (
+  score: number,
+  isSelected: boolean,
+  recommendationRank?: number,
+) => {
+  if (recommendationRank != null) {
+    const baseColor = RECOMMENDATION_MARKER_COLORS[recommendationRank] ?? RECOMMENDATION_MARKER_COLORS[3]
+    const fillColor = toRgbString(isSelected ? darkenColor(baseColor, 0.05) : baseColor)
+    const strokeColor = toRgbString(darkenColor(baseColor, isSelected ? 0.45 : 0.35))
+
+    return {
+      fillColor,
+      strokeColor,
+      strokeWeight: isSelected ? 3 : 2.5,
+    }
+  }
+
+  const normalizedScore = clamp((score - 40) / 60, 0, 1)
+  const baseColor = interpolateColor(MAP_LIGHT_RED, MAP_DARK_RED, normalizedScore)
+
+  return {
+    fillColor: toRgbString(isSelected ? darkenColor(baseColor, 0.08) : baseColor),
+    strokeColor: toRgbString(darkenColor(baseColor, isSelected ? 0.45 : 0.3)),
+    strokeWeight: isSelected ? 3 : 2.25,
+  }
+}
+
+const getCircleStyle = (
+  score: number,
+  isSelected: boolean,
+  recommendationRank?: number,
+) => {
+  if (recommendationRank != null) {
+    const baseColor = RECOMMENDATION_GREEN
+    const circleColor = toRgbString(isSelected ? darkenColor(baseColor, 0.1) : baseColor)
+
+    return {
+      fillColor: circleColor,
+      fillOpacity: isSelected ? 0.2 : 0.12,
+      strokeColor: circleColor,
+      strokeWeight: isSelected ? 2.5 : 1.5,
+    }
+  }
+
+  const mapColor = getMapColor(score, isSelected)
+  return {
+    fillColor: mapColor,
+    fillOpacity: isSelected ? 0.18 : 0.1,
+    strokeColor: mapColor,
+    strokeWeight: isSelected ? 2 : 1,
+  }
+}
+
+const getMarkerScale = (isSelected: boolean, recommendationRank?: number) => {
+  if (recommendationRank != null) return isSelected ? 14 : 12
+  return isSelected ? 12 : 9.5
+}
+
+const getMarkerLabel = (recommendationRank?: number, isSelected = false) => (
+  recommendationRank != null
+    ? {
+        text: String(recommendationRank),
+        color: '#FFFFFF',
+        fontWeight: '700',
+        fontSize: isSelected ? '13px' : '11px',
+      }
+    : undefined
+)
 
 export function ProfileForm({
   selectedNeighborhood,
@@ -88,11 +185,10 @@ export function ProfileForm({
   mapZoom,
   setMapZoom,
   availableNeighborhoods,
-  recommendedNeighborhoodNames,
-  onGenerateRecommendation,
+  recommendationItems,
+  recommendationsLoading,
   onChatResponse,
   communityDetails,
-  chatRecommendation,
   recommendationScores,
 }: ProfileFormProps) {
   const chatEndRef = useRef<HTMLDivElement>(null)
@@ -101,6 +197,7 @@ export function ProfileForm({
   const markersRef = useRef<Record<string, any>>({})
   const circlesRef = useRef<Record<string, any>>({})
   const infoWindowRef = useRef<any>(null)
+  const lastAutoFocusedRecommendationRef = useRef<string | null>(null)
   const communityDetailsRef = useRef(communityDetails)
   const recommendationScoresRef = useRef(recommendationScores)
   useEffect(() => { communityDetailsRef.current = communityDetails }, [communityDetails])
@@ -108,7 +205,7 @@ export function ProfileForm({
   const [mapError, setMapError] = useState<string | null>(null)
   const [isGenerating, setIsGenerating] = useState(false)
   const [chatInput, setChatInput] = useState('')
-  const [localWeights, setLocalWeights] = useState<PreferenceWeights | null>(null)
+  const [localWeights, setLocalWeights] = useState<PreferenceWeights>(DEFAULT_PREFERENCE_WEIGHTS)
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
     {
       role: 'assistant',
@@ -138,11 +235,21 @@ export function ProfileForm({
   const matchedNeighborhood = neighborhoods.find(
     (item) => item.name.toLowerCase() === communityInput.trim().toLowerCase(),
   )
-  const displayedNeighborhoods = useMemo(() => {
-    if (recommendedNeighborhoodNames.length === 0) return availableNeighborhoods
-    const recommendedSet = new Set(recommendedNeighborhoodNames)
-    return neighborhoods.filter((item) => recommendedSet.has(item.name))
-  }, [availableNeighborhoods, recommendedNeighborhoodNames])
+  const topRecommendation = recommendationItems[0] ?? null
+  const displayWeights = {
+    safety: localWeights.safety ?? 20,
+    transit: localWeights.transit ?? 20,
+    convenience: localWeights.convenience ?? 20,
+    parking: localWeights.parking ?? 20,
+    environment: localWeights.environment ?? 20,
+  }
+  const recommendationRankByName = useMemo(
+    () =>
+      Object.fromEntries(
+        recommendationItems.slice(0, 3).map((item) => [item.name, item.rank]),
+      ) as Record<string, number>,
+    [recommendationItems],
+  )
 
   // Auto-scroll chat to bottom on new messages
   useEffect(() => {
@@ -176,8 +283,14 @@ export function ProfileForm({
       const response = await postChat(history)
       console.log('[chat] response', response)
       setChatMessages((prev) => [...prev, { role: 'assistant', content: response.reply }])
-      setLocalWeights(response.weights)
-      onChatResponse(response)
+      setLocalWeights({
+        safety: response.weights.safety ?? 20,
+        transit: response.weights.transit ?? 20,
+        convenience: response.weights.convenience ?? 20,
+        parking: response.weights.parking ?? 20,
+        environment: response.weights.environment ?? 20,
+      })
+      await onChatResponse(response)
     } catch (err) {
       console.error('[chat] error', err)
       const isTimeout = err instanceof DOMException && err.name === 'TimeoutError'
@@ -217,7 +330,8 @@ export function ProfileForm({
         zoom: mapZoom,
         mapTypeControl: false,
         streetViewControl: false,
-        gestureHandling: 'cooperative',
+        gestureHandling: 'greedy',
+        zoomControl: true,
       })
 
       mapRef.current.addListener('zoom_changed', () => {
@@ -234,31 +348,34 @@ export function ProfileForm({
         if (!position) return
 
         const isSelected = neighborhood.name === selectedNeighborhood
+        const recommendationRank = recommendationRankByName[neighborhood.name]
         const score = recommendationScores[neighborhood.name] ?? 0
-        const mapColor = getMapColor(score, isSelected)
+        const markerStyle = getMarkerStyle(score, isSelected, recommendationRank)
+        const circleStyle = getCircleStyle(score, isSelected, recommendationRank)
         const marker = new googleMaps.Marker({
           map: mapRef.current,
           position,
           title: neighborhood.name,
           icon: {
             path: googleMaps.SymbolPath.CIRCLE,
-            fillColor: mapColor,
+            fillColor: markerStyle.fillColor,
             fillOpacity: 1,
-            strokeColor: '#FFFFFF',
-            strokeWeight: 2,
-            scale: isSelected ? 11 : 8,
+            strokeColor: markerStyle.strokeColor,
+            strokeWeight: markerStyle.strokeWeight,
+            scale: getMarkerScale(isSelected, recommendationRank),
           },
+          label: getMarkerLabel(recommendationRank, isSelected),
         })
 
         const circle = new googleMaps.Circle({
           map: mapRef.current,
           center: position,
           radius: isSelected ? 1200 : 850,
-          fillColor: mapColor,
-          fillOpacity: isSelected ? 0.18 : 0.1,
-          strokeColor: mapColor,
+          fillColor: circleStyle.fillColor,
+          fillOpacity: circleStyle.fillOpacity,
+          strokeColor: circleStyle.strokeColor,
           strokeOpacity: 0.8,
-          strokeWeight: isSelected ? 2 : 1,
+          strokeWeight: circleStyle.strokeWeight,
         })
 
         marker.addListener('click', () => {
@@ -320,7 +437,10 @@ export function ProfileForm({
     availableNeighborhoods,
     mapZoom,
     neighborhoodCoordinates,
+    recommendationRankByName,
+    recommendationScores,
     selectedPosition,
+    selectedNeighborhood,
     setMapZoom,
     setSelectedNeighborhood,
     setCommunityInput,
@@ -338,48 +458,133 @@ export function ProfileForm({
 
   // Zoom in and pan when a chat recommendation is set
   useEffect(() => {
-    if (!mapRef.current || !chatRecommendation) return
-    const pos = neighborhoodCoordinates.get(chatRecommendation.name)
+    if (!mapRef.current || !topRecommendation?.name) return
+    if (lastAutoFocusedRecommendationRef.current === topRecommendation.name) return
+
+    const pos = neighborhoodCoordinates.get(topRecommendation.name)
     if (!pos) return
+
+    lastAutoFocusedRecommendationRef.current = topRecommendation.name
     mapRef.current.panTo(pos)
     mapRef.current.setZoom(14)
-  }, [chatRecommendation, neighborhoodCoordinates])
+  }, [neighborhoodCoordinates, topRecommendation?.name])
 
   useEffect(() => {
     const googleMaps = (window as any).google?.maps
     if (!googleMaps) return
 
     Object.entries(markersRef.current).forEach(([name, marker]) => {
-      const isVisible = availableNeighborhoods.some((n) => n.name === name)
+      const isVisible =
+        availableNeighborhoods.some((n) => n.name === name)
+        || recommendationRankByName[name] != null
       const isSelected = name === selectedNeighborhood
+      const recommendationRank = recommendationRankByName[name]
       const score = recommendationScores[name] ?? 0
-      const mapColor = getMapColor(score, isSelected)
+      const markerStyle = getMarkerStyle(score, isSelected, recommendationRank)
       marker.setVisible(isVisible)
       marker.setIcon({
         path: googleMaps.SymbolPath.CIRCLE,
-        fillColor: mapColor,
+        fillColor: markerStyle.fillColor,
         fillOpacity: 1,
-        strokeColor: '#FFFFFF',
-        strokeWeight: 2,
-        scale: isSelected ? 11 : 8,
+        strokeColor: markerStyle.strokeColor,
+        strokeWeight: markerStyle.strokeWeight,
+        scale: getMarkerScale(isSelected, recommendationRank),
       })
+      marker.setLabel(getMarkerLabel(recommendationRank, isSelected))
     })
 
     Object.entries(circlesRef.current).forEach(([name, circle]) => {
-      const isVisible = availableNeighborhoods.some((n) => n.name === name)
+      const isVisible =
+        availableNeighborhoods.some((n) => n.name === name)
+        || recommendationRankByName[name] != null
       const isSelected = name === selectedNeighborhood
+      const recommendationRank = recommendationRankByName[name]
       const score = recommendationScores[name] ?? 0
-      const mapColor = getMapColor(score, isSelected)
+      const circleStyle = getCircleStyle(score, isSelected, recommendationRank)
       circle.setVisible(isVisible)
       circle.setOptions({
         radius: isSelected ? 1200 : 850,
-        fillColor: mapColor,
-        fillOpacity: isSelected ? 0.18 : 0.1,
-        strokeColor: mapColor,
-        strokeWeight: isSelected ? 2 : 1,
+        fillColor: circleStyle.fillColor,
+        fillOpacity: circleStyle.fillOpacity,
+        strokeColor: circleStyle.strokeColor,
+        strokeWeight: circleStyle.strokeWeight,
       })
     })
-  }, [availableNeighborhoods, recommendationScores, selectedNeighborhood])
+  }, [availableNeighborhoods, recommendationRankByName, recommendationScores, selectedNeighborhood])
+
+  const recommendationSection = (
+    <>
+      {recommendationsLoading && recommendationItems.length === 0 && (
+        <Chip
+          label="Loading top recommendations..."
+          color="secondary"
+          size="small"
+          sx={{ alignSelf: 'flex-start' }}
+        />
+      )}
+
+      {recommendationItems.length > 0 && (
+        <Stack
+          direction="row"
+          spacing={1.25}
+          useFlexGap
+          flexWrap="wrap"
+          sx={{ alignItems: 'stretch' }}
+        >
+          {recommendationItems.slice(0, 3).map((item) => {
+            const isActive = selectedNeighborhood === item.name
+
+            return (
+              <Box
+                key={item.community_id}
+                sx={{
+                  flex: { xs: '1 1 100%', md: '1 1 calc(33.333% - 10px)' },
+                  minWidth: 0,
+                  borderRadius: 2,
+                  border: '1.5px solid',
+                  borderColor: isActive ? 'secondary.main' : 'divider',
+                  p: 1.5,
+                  backgroundColor:
+                    isActive ? 'rgba(0,157,119,0.07)' : 'rgba(11,95,255,0.04)',
+                  display: 'flex',
+                  flexDirection: { xs: 'row', md: 'column' },
+                  alignItems: { xs: 'center', md: 'stretch' },
+                  justifyContent: 'space-between',
+                  gap: 1.25,
+                }}
+              >
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography
+                    variant="body2"
+                    fontWeight={700}
+                    color={isActive ? 'secondary.main' : 'text.primary'}
+                    sx={{ mb: 0.35 }}
+                  >
+                    #{item.rank} {item.name}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                    Score {Math.round(item.score)}/100
+                  </Typography>
+                </Box>
+                <Button
+                  size="small"
+                  variant="contained"
+                  color={isActive ? 'secondary' : 'primary'}
+                  sx={{ alignSelf: { xs: 'center', md: 'flex-start' }, flexShrink: 0 }}
+                  onClick={() => {
+                    setSelectedNeighborhood(item.name)
+                    setCommunityInput(item.name)
+                  }}
+                >
+                  View
+                </Button>
+              </Box>
+            )
+          })}
+        </Stack>
+      )}
+    </>
+  )
 
   return (
     <Card>
@@ -476,9 +681,6 @@ export function ProfileForm({
                       backgroundColor: '#F7F9FC',
                     }}
                   />
-                  <Typography color="text.secondary" variant="body2">
-                    Use two fingers to move or zoom the map, or click a marker to switch neighborhoods.
-                  </Typography>
                   <Slider
                     value={mapZoom}
                     min={10}
@@ -488,21 +690,10 @@ export function ProfileForm({
                     valueLabelDisplay="auto"
                     onChange={(_, value) => setMapZoom(value as number)}
                   />
-                  <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-                    {displayedNeighborhoods.map((n) => (
-                      <Chip
-                        key={n.id}
-                        label={n.name}
-                        color={selectedNeighborhood === n.name ? 'primary' : 'default'}
-                        onClick={() => {
-                          setSelectedNeighborhood(n.name)
-                          setCommunityInput(n.name)
-                        }}
-                      />
-                    ))}
-                  </Stack>
                 </Stack>
               </Box>
+
+              {recommendationSection}
 
             </Stack>
 
@@ -515,55 +706,10 @@ export function ProfileForm({
                 backgroundColor: 'background.paper',
                 display: 'flex',
                 flexDirection: 'column',
-                gap: 1.5,
                 minHeight: { xs: 360, md: 560 },
               }}
             >
-              <Typography variant="h6">LLM Chat</Typography>
-
-              {/* Preference progress */}
-              {(() => {
-                if (!localWeights) {
-                  return (
-                    <Typography variant="body2" color="text.secondary">
-                      Tell the assistant what matters to you — safety, commute, parking, quiet, or convenience. After a few messages the <strong>Apply</strong> button will unlock.
-                    </Typography>
-                  )
-                }
-                const dimKeys: Dimension[] = ['safety', 'transit', 'convenience', 'parking', 'environment']
-                const dimLabels: Record<Dimension, string> = { safety: 'Safety', transit: 'Transit', convenience: 'Convenience', parking: 'Parking', environment: 'Environment' }
-                const covered = dimKeys.filter((k) => {
-                  const v = localWeights[k]
-                  return v !== null && Math.abs(v - 20) > 5
-                })
-                const hasPreference = covered.length > 0
-                return (
-                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.8 }}>
-                    <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap">
-                      {dimKeys.map((k) => {
-                        const v = localWeights[k]
-                        const active = v !== null && Math.abs(v - 20) > 5
-                        return (
-                          <Chip
-                            key={k}
-                            label={`${dimLabels[k]} ${v !== null ? Math.round(v) + '%' : '—'}`}
-                            size="small"
-                            color={active ? 'primary' : 'default'}
-                            variant={active ? 'filled' : 'outlined'}
-                          />
-                        )
-                      })}
-                    </Stack>
-                    <Typography variant="caption" color={hasPreference ? 'success.main' : 'text.secondary'}>
-                      {hasPreference
-                        ? `✓ ${covered.length}/5 preferences set — Apply is ready`
-                        : `0/5 preferences set — share what matters to you`}
-                    </Typography>
-                  </Box>
-                )
-              })()}
-
-              <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+              <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mb: 1.5 }}>
                 {quickPrompts.map((prompt) => (
                   <Chip
                     key={prompt}
@@ -577,7 +723,8 @@ export function ProfileForm({
 
               <Box
                 sx={{
-                  height: 280,
+                  flex: 1,
+                  minHeight: 280,
                   border: '1px solid',
                   borderColor: 'divider',
                   borderRadius: 2,
@@ -612,118 +759,133 @@ export function ProfileForm({
                 </Stack>
               </Box>
 
-              {chatRecommendation && (
+              <Box sx={{ mt: 'auto', pt: 1.5, display: 'flex', flexDirection: 'column', gap: 1.1 }}>
+                {(() => {
+                  const covered = PREFERENCE_DIMENSIONS.filter((key) => Math.abs(displayWeights[key] - 20) > 5)
+                  const hasPreference = covered.length > 0
+
+                  return (
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.8 }}>
+                      <Stack direction="row" spacing={0.8} useFlexGap flexWrap="wrap">
+                        {PREFERENCE_DIMENSIONS.map((key) => {
+                          const value = displayWeights[key]
+                          const active = Math.abs(value - 20) > 5
+                          return (
+                            <Chip
+                              key={key}
+                              label={`${PREFERENCE_LABELS[key]} ${Math.round(value)}%`}
+                              size="small"
+                              color={active ? 'primary' : 'default'}
+                              variant={active ? 'filled' : 'outlined'}
+                            />
+                          )
+                        })}
+                      </Stack>
+                      <Typography variant="caption" color={hasPreference ? 'success.main' : 'text.secondary'}>
+                        {hasPreference
+                          ? `✓ ${covered.length}/5 preferences set — recommendations are updating automatically`
+                          : '0/5 preferences set — current defaults are evenly balanced'}
+                      </Typography>
+                    </Box>
+                  )
+                })()}
+
                 <Box
                   sx={{
-                    borderRadius: 2,
-                    border: '1.5px solid',
-                    borderColor: 'secondary.main',
-                    p: 1.5,
-                    backgroundColor: 'rgba(0,157,119,0.07)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: 1,
+                    border: '1px solid',
+                    borderColor: 'divider',
+                    borderRadius: '28px',
+                    px: 2,
+                    py: 1.5,
+                    background: 'linear-gradient(180deg, #FFFFFF 0%, #FBFDFF 100%)',
+                    boxShadow: '0 14px 28px rgba(15, 23, 42, 0.06)',
                   }}
                 >
-                  <Box>
-                    <Typography variant="body2" fontWeight={700} color="secondary.main">
-                      Best match: {chatRecommendation.name}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      Score {chatRecommendation.score}/100 based on your preferences · Map updated
-                    </Typography>
-                  </Box>
-                  <Button
-                    size="small"
-                    variant="contained"
-                    color="secondary"
-                    onClick={() => {
-                      setSelectedNeighborhood(chatRecommendation.name)
-                      setCommunityInput(chatRecommendation.name)
+                  <InputBase
+                    multiline
+                    minRows={3}
+                    maxRows={8}
+                    fullWidth
+                    value={chatInput}
+                    onChange={(event) => setChatInput(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' && !event.shiftKey) {
+                        event.preventDefault()
+                        handleSendChat()
+                      }
+                    }}
+                    placeholder="Ask the assistant..."
+                    sx={{
+                      width: '100%',
+                      alignItems: 'flex-start',
+                      fontSize: '1.05rem',
+                      lineHeight: 1.6,
+                      color: 'text.primary',
+                      '& textarea': {
+                        resize: 'none !important',
+                      },
+                    }}
+                  />
+
+                  <Stack
+                    direction="row"
+                    alignItems="center"
+                    justifyContent="space-between"
+                    sx={{
+                      mt: 1.25,
+                      pt: 1.1,
+                      borderTop: '1px solid',
+                      borderColor: 'rgba(152, 162, 179, 0.22)',
                     }}
                   >
-                    View
-                  </Button>
-                </Box>
-              )}
-
-              <TextField
-                multiline
-                minRows={2}
-                label="Ask the assistant"
-                value={chatInput}
-                onChange={(event) => setChatInput(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' && !event.shiftKey) {
-                    event.preventDefault()
-                    handleSendChat()
-                  }
-                }}
-                placeholder="e.g. I commute 5 days/week and prefer safe, quiet neighborhoods."
-              />
-
-              <Stack direction="row" spacing={1}>
-                <Button
-                  fullWidth
-                  variant="outlined"
-                  onClick={() => {
-                    setChatMessages([
-                      {
-                        role: 'assistant',
-                        content:
-                          'Share your budget, commute, and preferences, and I will recommend neighborhoods.',
-                      },
-                    ])
-                    setChatInput('')
-                    setLocalWeights(null)
-                    onChatResponse({ reply: '', weights: { safety: null, transit: null, convenience: null, parking: null, environment: null }, ready_to_recommend: false })
-                  }}
-                >
-                  New Chat
-                </Button>
-                <Button
-                  fullWidth
-                  variant="contained"
-                  onClick={handleSendChat}
-                  disabled={!chatInput.trim() || isGenerating}
-                >
-                  Send
-                </Button>
-              </Stack>
-
-              {(() => {
-                const dimKeys: Dimension[] = ['safety', 'transit', 'convenience', 'parking', 'environment']
-                const hasPreference = localWeights !== null && dimKeys.some((k) => {
-                  const v = localWeights[k]
-                  return v !== null && Math.abs(v - 20) > 5
-                })
-                return (
-                  <Box>
-                    {!hasPreference && (
-                      <Typography variant="caption" color="text.secondary" display="block" textAlign="center" mb={0.5}>
-                        {!localWeights ? 'Chat with the assistant to unlock' : 'Tell us more about your preferences to unlock'}
-                      </Typography>
-                    )}
                     <Button
-                      fullWidth
-                      variant="contained"
-                      color="secondary"
-                      onClick={onGenerateRecommendation}
-                      disabled={!hasPreference}
-                      sx={hasPreference ? {
-                        animation: 'pulse 1.5s ease-in-out 3',
-                        '@keyframes pulse': {
-                          '0%, 100%': { boxShadow: '0 0 0 0 rgba(0,157,119,0.5)' },
-                          '50%': { boxShadow: '0 0 0 8px rgba(0,157,119,0)' },
-                        },
-                      } : {}}
+                      variant="text"
+                      onClick={() => {
+                        setChatMessages([
+                          {
+                            role: 'assistant',
+                            content:
+                              'Share your budget, commute, and preferences, and I will recommend neighborhoods.',
+                          },
+                        ])
+                        setChatInput('')
+                        setLocalWeights(DEFAULT_PREFERENCE_WEIGHTS)
+                        onChatResponse({ reply: '', weights: { safety: null, transit: null, convenience: null, parking: null, environment: null }, ready_to_recommend: false })
+                      }}
+                      sx={{
+                        minWidth: 0,
+                        px: 1,
+                        color: 'text.secondary',
+                        borderRadius: 999,
+                      }}
                     >
-                      Apply Prompt To Recommendations
+                      New Chat
                     </Button>
-                  </Box>
-                )
-              })()}
+
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <Typography variant="caption" color="text.secondary">
+                        Enter to send
+                      </Typography>
+                      <Button
+                        variant="contained"
+                        onClick={handleSendChat}
+                        disabled={!chatInput.trim() || isGenerating || recommendationsLoading}
+                        sx={{
+                          minWidth: 48,
+                          width: 48,
+                          height: 48,
+                          borderRadius: '50%',
+                          p: 0,
+                          fontSize: '1.2rem',
+                          boxShadow: '0 10px 22px rgba(11, 95, 255, 0.28)',
+                        }}
+                      >
+                        ↑
+                      </Button>
+                    </Stack>
+                  </Stack>
+                </Box>
+              </Box>
             </Box>
           </Box>
         </Stack>

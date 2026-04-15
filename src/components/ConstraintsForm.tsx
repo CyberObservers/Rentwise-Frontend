@@ -8,15 +8,16 @@ import {
   Stack,
   Typography,
 } from '@mui/material'
+import type { ApiCommunityInsight, ApiMetrics } from '../api'
 import { dimensionLabels, dimensions } from '../data'
-import type { ApiMetrics } from '../api'
 import type { Dimension, Neighborhood } from '../types'
 import { WeightEditorCard } from './WeightEditorCard'
 
 function getBestFitProfile(objective: Record<Dimension, number | null>): string {
   const sorted = [...dimensions]
-    .filter((d) => objective[d] != null)
+    .filter((dimension) => objective[dimension] != null)
     .sort((a, b) => (objective[b] ?? 0) - (objective[a] ?? 0))
+
   const top2 = sorted.slice(0, 2)
   if (top2.includes('transit') && top2.includes('convenience')) return 'Car-free renters & students'
   if (top2.includes('safety') && top2.includes('environment')) return 'Families & quiet-seekers'
@@ -25,21 +26,50 @@ function getBestFitProfile(objective: Record<Dimension, number | null>): string 
   return `Renters prioritizing ${dimensionLabels[top2[0] as Dimension]}`
 }
 
-function getMatchChip(score: number | null): { label: string; color: 'success' | 'warning' | 'error' | 'default' } {
-  if (score == null) return { label: 'No data', color: 'default' }
-  if (score >= 75) return { label: 'Strong match', color: 'success' }
-  if (score >= 50) return { label: 'Fair', color: 'warning' }
-  return { label: 'Weak match', color: 'error' }
-}
+function getMatchChip(score: number | null): {
+  label: string
+  sx: {
+    backgroundColor: string
+    color: string
+  }
+} {
+  if (score == null) {
+    return {
+      label: 'No data',
+      sx: {
+        backgroundColor: '#E5E7EB',
+        color: '#475467',
+      },
+    }
+  }
 
-type ConstraintsFormProps = {
-  selectedNeighborhoodData: Neighborhood
-  weights: Record<Dimension, number>
-  onWeightsChange: (nextWeights: Record<Dimension, number>) => void
-  aiSuggestedWeights: Record<Dimension, number> | null
-  topDrivers: string[]
-  modelPrompt: string
-  metrics: ApiMetrics | null
+  if (score >= 75) {
+    return {
+      label: 'Strong match',
+      sx: {
+        backgroundColor: '#0F9F76',
+        color: '#FFFFFF',
+      },
+    }
+  }
+
+  if (score >= 50) {
+    return {
+      label: 'Fair',
+      sx: {
+        backgroundColor: '#F57C00',
+        color: '#FFFFFF',
+      },
+    }
+  }
+
+  return {
+    label: 'Weak match',
+    sx: {
+      backgroundColor: '#DC2626',
+      color: '#FFFFFF',
+    },
+  }
 }
 
 function formatMetricLine(dim: Dimension, metrics: ApiMetrics): string | null {
@@ -49,7 +79,7 @@ function formatMetricLine(dim: Dimension, metrics: ApiMetrics): string | null {
         ? `Crime rate: ${metrics.crime_rate_per_100k.toFixed(0)} per 100k`
         : null
     case 'transit':
-      return null // commute_minutes not available in API
+      return null
     case 'convenience':
       return metrics.grocery_density_per_km2 != null
         ? `Grocery density: ${metrics.grocery_density_per_km2.toFixed(1)}/km²`
@@ -65,15 +95,77 @@ function formatMetricLine(dim: Dimension, metrics: ApiMetrics): string | null {
   }
 }
 
+function buildInsightCommentaryMap(
+  insight: ApiCommunityInsight | null,
+): Partial<Record<Dimension, string>> {
+  if (!insight) return {}
+
+  return insight.dimensions.reduce<Partial<Record<Dimension, string>>>((acc, item) => {
+    acc[item.dimension] = item.commentary
+    return acc
+  }, {})
+}
+
+function buildTradeoffCopy(
+  selectedNeighborhoodData: Neighborhood,
+  insightCommentary: Partial<Record<Dimension, string>>,
+): string {
+  const weakestDimension = [...dimensions].sort(
+    (a, b) => (selectedNeighborhoodData.objective[a] ?? 0) - (selectedNeighborhoodData.objective[b] ?? 0),
+  )[0]
+  const weakestScore = selectedNeighborhoodData.objective[weakestDimension]
+  const commentary =
+    insightCommentary[weakestDimension] ?? selectedNeighborhoodData.perception[weakestDimension]
+
+  if (weakestScore == null || weakestScore >= 70) {
+    return selectedNeighborhoodData.tradeoffNote
+  }
+
+  return `${dimensionLabels[weakestDimension]} is the main trade-off here. ${commentary}`
+}
+
+function buildAffordabilityCopy(metrics: ApiMetrics | null): string {
+  if (metrics?.median_rent == null) {
+    return 'Live rent pricing is not available yet, so affordability is estimated from broader neighborhood signals.'
+  }
+
+  const medianRent = `$${Math.round(metrics.median_rent).toLocaleString()}/mo`
+  if (metrics.median_rent < 2000) {
+    return `Median rent is ${medianRent}. This looks below the typical Irvine range and may offer stronger value.`
+  }
+  if (metrics.median_rent < 2800) {
+    return `Median rent is ${medianRent}. Pricing looks close to the broader Irvine market.`
+  }
+  return `Median rent is ${medianRent}. This area looks premium-priced, so budget headroom matters before committing.`
+}
+
+type ConstraintsFormProps = {
+  selectedNeighborhoodData: Neighborhood
+  weights: Record<Dimension, number>
+  onWeightsChange: (nextWeights: Record<Dimension, number>) => void
+  aiSuggestedWeights: Record<Dimension, number> | null
+  modelPrompt: string
+  metrics: ApiMetrics | null
+  insight: ApiCommunityInsight | null
+  insightLoading: boolean
+}
+
 export function ConstraintsForm({
   selectedNeighborhoodData,
   weights,
   onWeightsChange,
   aiSuggestedWeights,
-  topDrivers,
   modelPrompt,
   metrics,
+  insight,
+  insightLoading,
 }: ConstraintsFormProps) {
+  const insightCommentary = buildInsightCommentaryMap(insight)
+  const postsAnalyzed = insight?.posts_analyzed ?? selectedNeighborhoodData.redditSampleSize
+  const overallCommentary = insight?.overall_commentary ?? selectedNeighborhoodData.tradeoffNote
+  const tradeoffCopy = buildTradeoffCopy(selectedNeighborhoodData, insightCommentary)
+  const affordabilityCopy = buildAffordabilityCopy(metrics)
+
   return (
     <Stack spacing={3}>
       <WeightEditorCard
@@ -118,7 +210,7 @@ export function ConstraintsForm({
                     <Typography fontWeight={700}>{dimensionLabels[dimension]}</Typography>
                     <Chip
                       color="primary"
-                      label={value === null ? 'N/A' : `${Math.round(value)}/100`}
+                      label={value == null ? 'N/A' : `${Math.round(value)}/100`}
                       sx={{ fontWeight: 700 }}
                     />
                   </Stack>
@@ -148,71 +240,161 @@ export function ConstraintsForm({
         </CardContent>
       </Card>
 
-      <Card>
-        <CardContent>
-          <Stack spacing={2}>
-            <Typography variant="h6">Neighborhood Insight</Typography>
+      <Card
+        sx={{
+          border: '1px solid #D7DDE8',
+          boxShadow: '0 18px 40px rgba(15, 23, 42, 0.08)',
+        }}
+      >
+        <CardContent sx={{ p: { xs: 2.5, md: 3 } }}>
+          <Stack spacing={3}>
+            <Stack spacing={1.5}>
+              <Typography
+                variant="h6"
+                sx={{
+                  fontSize: { xs: '1.8rem', md: '2.2rem' },
+                  fontWeight: 800,
+                  letterSpacing: '-0.04em',
+                }}
+              >
+                Neighborhood Insight
+              </Typography>
 
-            <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
-              <Typography variant="body2" color="text.secondary">Best fit for:</Typography>
-              <Chip size="small" label={getBestFitProfile(selectedNeighborhoodData.objective)} color="secondary" />
-              <Chip size="small" label={`${selectedNeighborhoodData.redditSampleSize} community posts analyzed`} variant="outlined" />
-            </Stack>
+              <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
+                <Typography variant="body1" color="text.secondary">
+                  Best fit for:
+                </Typography>
+                <Chip
+                  label={getBestFitProfile(selectedNeighborhoodData.objective)}
+                  sx={{
+                    backgroundColor: '#0F9F76',
+                    color: '#FFFFFF',
+                    fontWeight: 700,
+                  }}
+                />
+                <Chip
+                  label={`${postsAnalyzed} community posts analyzed`}
+                  variant="outlined"
+                  sx={{
+                    borderColor: '#C7CEDB',
+                    color: '#344054',
+                    backgroundColor: '#FFFFFF',
+                  }}
+                />
+                {insight && (
+                  <Chip
+                    size="small"
+                    label="Backend insight live"
+                    sx={{
+                      backgroundColor: '#E8F7F1',
+                      color: '#0F7A59',
+                      fontWeight: 700,
+                    }}
+                  />
+                )}
+                {!insight && insightLoading && (
+                  <Chip
+                    size="small"
+                    label="Loading live insight"
+                    sx={{
+                      backgroundColor: '#EEF4FF',
+                      color: '#1849A9',
+                      fontWeight: 700,
+                    }}
+                  />
+                )}
+              </Stack>
 
-            <Divider />
-
-            <Typography variant="subtitle2" fontWeight={700}>
-              How this neighborhood matches your priorities
-            </Typography>
-            {topDrivers.map((driver) => {
-              const dim = driver.split(' ')[0] as Dimension
-              const score = selectedNeighborhoodData.objective[dim]
-              const { label, color } = getMatchChip(score)
-              return (
-                <Stack key={dim} spacing={0.5}>
-                  <Stack direction="row" justifyContent="space-between" alignItems="center">
-                    <Typography variant="body2" fontWeight={600}>
-                      {dimensionLabels[dim]}
-                    </Typography>
-                    <Stack direction="row" spacing={1} alignItems="center">
-                      <Typography variant="body2" color="text.secondary">
-                        {score != null ? `${Math.round(score)}/100` : 'N/A'}
-                      </Typography>
-                      <Chip size="small" label={label} color={color} />
-                    </Stack>
-                  </Stack>
-                  <Typography variant="caption" color="text.secondary">
-                    {selectedNeighborhoodData.perception[dim]}
-                  </Typography>
-                </Stack>
-              )
-            })}
-
-            <Divider />
-
-            <Stack spacing={0.5}>
-              <Typography variant="subtitle2" fontWeight={700}>Key trade-off</Typography>
-              <Typography variant="body2" color="text.secondary">
-                {selectedNeighborhoodData.tradeoffNote}
+              <Typography
+                variant="body1"
+                color="text.secondary"
+                sx={{
+                  maxWidth: 980,
+                  lineHeight: 1.7,
+                }}
+              >
+                {overallCommentary}
               </Typography>
             </Stack>
 
-            {metrics?.median_rent != null && (
-              <>
-                <Divider />
-                <Stack spacing={0.5}>
-                  <Typography variant="subtitle2" fontWeight={700}>Affordability</Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Median rent is ${metrics.median_rent.toLocaleString()}/mo.{' '}
-                    {metrics.median_rent < 2000
-                      ? 'Below the Irvine average — good value for this area.'
-                      : metrics.median_rent < 2800
-                        ? 'Near market average for Irvine.'
-                        : 'Above average; budget carefully before committing.'}
-                  </Typography>
-                </Stack>
-              </>
-            )}
+            <Divider />
+
+            <Stack spacing={2.5}>
+              <Typography variant="subtitle1" fontWeight={800}>
+                How this neighborhood matches your priorities
+              </Typography>
+
+              {dimensions.map((dimension) => {
+                const score = selectedNeighborhoodData.objective[dimension]
+                const commentary =
+                  insightCommentary[dimension] ?? selectedNeighborhoodData.perception[dimension]
+                const { label, sx } = getMatchChip(score)
+
+                return (
+                  <Stack
+                    key={dimension}
+                    direction={{ xs: 'column', md: 'row' }}
+                    spacing={1.5}
+                    justifyContent="space-between"
+                    alignItems={{ xs: 'flex-start', md: 'center' }}
+                  >
+                    <Box sx={{ flex: 1 }}>
+                      <Typography variant="h6" sx={{ fontSize: '1rem', mb: 0.5 }}>
+                        {dimensionLabels[dimension]}
+                      </Typography>
+                      <Typography
+                        variant="body1"
+                        color="text.secondary"
+                        sx={{ lineHeight: 1.65, maxWidth: 960 }}
+                      >
+                        {commentary}
+                      </Typography>
+                    </Box>
+
+                    <Stack
+                      direction="row"
+                      spacing={1}
+                      alignItems="center"
+                      sx={{ minWidth: { md: 200 }, justifyContent: 'flex-end' }}
+                    >
+                      <Typography variant="h6" color="text.secondary" sx={{ fontSize: '1rem' }}>
+                        {score != null ? `${Math.round(score)}/100` : 'N/A'}
+                      </Typography>
+                      <Chip
+                        size="small"
+                        label={label}
+                        sx={{
+                          ...sx,
+                          fontWeight: 700,
+                        }}
+                      />
+                    </Stack>
+                  </Stack>
+                )
+              })}
+            </Stack>
+
+            <Divider />
+
+            <Stack spacing={0.75}>
+              <Typography variant="subtitle1" fontWeight={800}>
+                Key trade-off
+              </Typography>
+              <Typography variant="body1" color="text.secondary" sx={{ lineHeight: 1.7 }}>
+                {tradeoffCopy}
+              </Typography>
+            </Stack>
+
+            <Divider />
+
+            <Stack spacing={0.75}>
+              <Typography variant="subtitle1" fontWeight={800}>
+                Affordability
+              </Typography>
+              <Typography variant="body1" color="text.secondary" sx={{ lineHeight: 1.7 }}>
+                {affordabilityCopy}
+              </Typography>
+            </Stack>
 
             {modelPrompt && (
               <>
