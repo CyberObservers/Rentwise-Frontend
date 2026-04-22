@@ -54,7 +54,7 @@ export function loadGoogleMapsScript(
 
     const script = document.createElement('script')
     script.id = GOOGLE_MAPS_SCRIPT_ID
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&loading=async`
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&loading=async&language=en&region=US`
     script.async = true
     script.defer = true
     script.addEventListener('load', handleLoad, { once: true })

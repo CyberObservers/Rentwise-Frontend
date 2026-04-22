@@ -3,6 +3,7 @@ import {
   Card,
   CardContent,
   Chip,
+  CircularProgress,
   Divider,
   LinearProgress,
   Link,
@@ -10,22 +11,40 @@ import {
   Typography,
 } from '@mui/material'
 import type { ApiCommunityInsight, ApiMetrics } from '../api'
-import { dimensionLabels, dimensions } from '../types'
+import { dimensionLabels, dimensions, dimensionStyles } from '../types'
 import type { Dimension, Neighborhood } from '../types'
 import { WeightEditorCard } from './WeightEditorCard'
 
-function getBestFitProfile(objective: Record<Dimension, number | null>): string {
+function getBestFitProfile(objective: Record<Dimension, number | null>): {
+  label: string
+  dominantDimension: Dimension | null
+} {
   const sorted = [...dimensions]
     .filter((dimension) => objective[dimension] != null)
     .sort((a, b) => (objective[b] ?? 0) - (objective[a] ?? 0))
 
   const top2 = sorted.slice(0, 2)
-  if (top2.length === 0) return 'Live profile unavailable'
-  if (top2.includes('transit') && top2.includes('convenience')) return 'Car-free renters & students'
-  if (top2.includes('safety') && top2.includes('environment')) return 'Families & quiet-seekers'
-  if (top2.includes('safety') && top2.includes('convenience')) return 'Urban professionals'
-  if (top2.includes('environment') && top2.includes('parking')) return 'Suburban residents'
-  return `Renters prioritizing ${dimensionLabels[top2[0] as Dimension]}`
+  const dominantDimension = top2[0] ?? null
+
+  if (top2.length === 0) {
+    return { label: 'Live profile unavailable', dominantDimension: null }
+  }
+  if (top2.includes('transit') && top2.includes('convenience')) {
+    return { label: 'Car-free renters & students', dominantDimension }
+  }
+  if (top2.includes('safety') && top2.includes('environment')) {
+    return { label: 'Families & quiet-seekers', dominantDimension }
+  }
+  if (top2.includes('safety') && top2.includes('convenience')) {
+    return { label: 'Urban professionals', dominantDimension }
+  }
+  if (top2.includes('environment') && top2.includes('parking')) {
+    return { label: 'Suburban residents', dominantDimension }
+  }
+  return {
+    label: `Renters prioritizing ${dimensionLabels[top2[0] as Dimension]}`,
+    dominantDimension,
+  }
 }
 
 function getMatchChip(score: number | null): {
@@ -238,6 +257,7 @@ export function ConstraintsForm({
     Boolean(communityOverviewSummary.text)
     || communityOverviewSummary.links.length > 0
     || communityOverviewHighlights.length > 0
+  const bestFitProfile = getBestFitProfile(selectedNeighborhoodData.objective)
   const tradeoffCopy = buildTradeoffCopy(selectedNeighborhoodData, insightCommentary, metrics)
   const affordabilityCopy = buildAffordabilityCopy(metrics)
 
@@ -254,66 +274,6 @@ export function ConstraintsForm({
         onChange={onWeightsChange}
         aiSuggestedWeights={aiSuggestedWeights}
       />
-
-      <Card>
-        <CardContent>
-          <Stack spacing={2}>
-            <Typography variant="h6">Neighborhood metrics and charts</Typography>
-            <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
-              <Typography color="text.secondary">Focus neighborhood:</Typography>
-              <Chip
-                color="primary"
-                label={selectedNeighborhoodData.name}
-                sx={{ fontWeight: 800, fontSize: 14 }}
-              />
-              {metrics && (
-                <Chip
-                  label="Live data"
-                  color="success"
-                  size="small"
-                  variant="outlined"
-                />
-              )}
-            </Stack>
-            {dimensions.map((dimension) => {
-              const value = selectedNeighborhoodData.objective[dimension]
-              const normalizedValue = Math.max(0, Math.min(100, value ?? 0))
-              const metricLine = metrics ? formatMetricLine(dimension, metrics) : null
-              return (
-                <Box key={dimension}>
-                  <Stack direction="row" justifyContent="space-between" alignItems="center">
-                    <Typography fontWeight={700}>{dimensionLabels[dimension]}</Typography>
-                    <Chip
-                      color="primary"
-                      label={value == null ? 'N/A' : `${Math.round(value)}/100`}
-                      sx={{ fontWeight: 700 }}
-                    />
-                  </Stack>
-                  <LinearProgress
-                    variant="determinate"
-                    value={normalizedValue}
-                    sx={{
-                      mt: 1,
-                      height: 12,
-                      borderRadius: 999,
-                      backgroundColor: '#B7C6F2',
-                      '& .MuiLinearProgress-bar': {
-                        borderRadius: 999,
-                        backgroundColor: '#2F62EA',
-                      },
-                    }}
-                  />
-                  {metricLine && (
-                    <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
-                      {metricLine}
-                    </Typography>
-                  )}
-                </Box>
-              )
-            })}
-          </Stack>
-        </CardContent>
-      </Card>
 
       <Card
         sx={{
@@ -337,13 +297,36 @@ export function ConstraintsForm({
 
               <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
                 <Typography variant="body1" color="text.secondary">
+                  Focus neighborhood:
+                </Typography>
+                <Chip
+                  label={selectedNeighborhoodData.name}
+                  sx={{ fontWeight: 800, fontSize: 14 }}
+                  color="primary"
+                />
+                {metrics && (
+                  <Chip
+                    label="Live data"
+                    color="success"
+                    size="small"
+                    variant="outlined"
+                  />
+                )}
+              </Stack>
+
+              <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
+                <Typography variant="body1" color="text.secondary">
                   Best fit for:
                 </Typography>
                 <Chip
-                  label={getBestFitProfile(selectedNeighborhoodData.objective)}
+                  label={bestFitProfile.label}
                   sx={{
-                    backgroundColor: '#0F9F76',
-                    color: '#FFFFFF',
+                    backgroundColor: bestFitProfile.dominantDimension
+                      ? dimensionStyles[bestFitProfile.dominantDimension].solid
+                      : '#0F9F76',
+                    color: bestFitProfile.dominantDimension
+                      ? dimensionStyles[bestFitProfile.dominantDimension].contrastText
+                      : '#FFFFFF',
                     fontWeight: 700,
                   }}
                 />
@@ -370,13 +353,12 @@ export function ConstraintsForm({
                   </>
                 )}
                 {!insight && insightLoading && (
-                  <Chip
-                    size="small"
-                    label="Loading live insight"
+                  <CircularProgress
+                    size={22}
+                    thickness={4.5}
+                    aria-label="Loading live insight"
                     sx={{
-                      backgroundColor: '#EEF4FF',
                       color: '#1849A9',
-                      fontWeight: 700,
                     }}
                   />
                 )}
@@ -483,23 +465,83 @@ export function ConstraintsForm({
 
               {dimensions.map((dimension) => {
                 const score = selectedNeighborhoodData.objective[dimension]
+                const normalizedValue = Math.max(0, Math.min(100, score ?? 0))
+                const metricLine = metrics ? formatMetricLine(dimension, metrics) : null
                 const commentary =
                   insightCommentary[dimension]
                   ?? buildMetricFallbackCommentary(dimension, score, metrics)
                 const { label, sx } = getMatchChip(score)
+                const dimensionStyle = dimensionStyles[dimension]
+                const supportingMetricLine = insightCommentary[dimension] ? metricLine : null
 
                 return (
-                  <Stack
+                  <Box
                     key={dimension}
-                    direction={{ xs: 'column', md: 'row' }}
-                    spacing={1.5}
-                    justifyContent="space-between"
-                    alignItems={{ xs: 'flex-start', md: 'center' }}
+                    sx={{
+                      p: { xs: 1.5, md: 2 },
+                      borderRadius: 2.5,
+                      border: '1px solid',
+                      borderColor: dimensionStyle.border,
+                      background: `linear-gradient(180deg, ${dimensionStyle.soft} 0%, rgba(255,255,255,0.96) 100%)`,
+                    }}
                   >
-                    <Box sx={{ flex: 1 }}>
-                      <Typography variant="h6" sx={{ fontSize: '1rem', mb: 0.5 }}>
-                        {dimensionLabels[dimension]}
-                      </Typography>
+                    <Stack spacing={1.2}>
+                      <Stack
+                        direction={{ xs: 'column', md: 'row' }}
+                        spacing={1.25}
+                        justifyContent="space-between"
+                        alignItems={{ xs: 'flex-start', md: 'center' }}
+                      >
+                        <Typography
+                          variant="h6"
+                          sx={{ fontSize: '1rem', color: dimensionStyle.text }}
+                        >
+                          {dimensionLabels[dimension]}
+                        </Typography>
+
+                        <Stack
+                          direction="row"
+                          spacing={1}
+                          alignItems="center"
+                          sx={{ minWidth: { md: 200 }, justifyContent: 'flex-end' }}
+                        >
+                          <Typography variant="h6" color="text.secondary" sx={{ fontSize: '1rem' }}>
+                            {score != null ? `${Math.round(score)}/100` : 'N/A'}
+                          </Typography>
+                          <Chip
+                            size="small"
+                            label={label}
+                            sx={{
+                              ...sx,
+                              fontWeight: 700,
+                            }}
+                          />
+                        </Stack>
+                      </Stack>
+
+                      <LinearProgress
+                        variant="determinate"
+                        value={normalizedValue}
+                        sx={{
+                          height: 10,
+                          borderRadius: 999,
+                          backgroundColor: dimensionStyle.track,
+                          '& .MuiLinearProgress-bar': {
+                            borderRadius: 999,
+                            backgroundColor: dimensionStyle.solid,
+                          },
+                        }}
+                      />
+
+                      {supportingMetricLine && (
+                        <Typography
+                          variant="caption"
+                          sx={{ display: 'block', color: dimensionStyle.text, fontWeight: 600 }}
+                        >
+                          {supportingMetricLine}
+                        </Typography>
+                      )}
+
                       <Typography
                         variant="body1"
                         color="text.secondary"
@@ -507,27 +549,8 @@ export function ConstraintsForm({
                       >
                         {commentary}
                       </Typography>
-                    </Box>
-
-                    <Stack
-                      direction="row"
-                      spacing={1}
-                      alignItems="center"
-                      sx={{ minWidth: { md: 200 }, justifyContent: 'flex-end' }}
-                    >
-                      <Typography variant="h6" color="text.secondary" sx={{ fontSize: '1rem' }}>
-                        {score != null ? `${Math.round(score)}/100` : 'N/A'}
-                      </Typography>
-                      <Chip
-                        size="small"
-                        label={label}
-                        sx={{
-                          ...sx,
-                          fontWeight: 700,
-                        }}
-                      />
                     </Stack>
-                  </Stack>
+                  </Box>
                 )
               })}
             </Stack>

@@ -7,17 +7,9 @@ import {
   Stack,
   Typography,
 } from '@mui/material'
-import { useCallback, useRef } from 'react'
-import { dimensionLabels, dimensions } from '../types'
+import { useCallback, useRef, useState } from 'react'
+import { dimensionLabels, dimensions, dimensionStyles } from '../types'
 import type { Dimension } from '../types'
-
-const DIMENSION_COLORS: Record<Dimension, string> = {
-  safety: '#534AB7',
-  transit: '#1D9E75',
-  convenience: '#D85A30',
-  parking: '#378ADD',
-  environment: '#D4537E',
-}
 
 function WeightBar({
   weights,
@@ -28,6 +20,7 @@ function WeightBar({
 }) {
   const barRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<{ idx: number; startX: number; startWeights: number[] } | null>(null)
+  const [isDragging, setIsDragging] = useState(false)
 
   const handlePointerDown = useCallback(
     (idx: number, e: React.PointerEvent) => {
@@ -35,6 +28,7 @@ function WeightBar({
       const bar = barRef.current
       if (!bar) return
       ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
+      setIsDragging(true)
       dragRef.current = {
         idx,
         startX: e.clientX,
@@ -74,6 +68,7 @@ function WeightBar({
 
   const handlePointerUp = useCallback(() => {
     dragRef.current = null
+    setIsDragging(false)
   }, [])
 
   return (
@@ -106,12 +101,12 @@ function WeightBar({
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                backgroundColor: DIMENSION_COLORS[dim],
-                color: '#fff',
+                backgroundColor: dimensionStyles[dim].solid,
+                color: dimensionStyles[dim].contrastText,
                 fontSize: 13,
                 fontWeight: 600,
                 position: 'relative',
-                transition: dragRef.current ? 'none' : 'width 0.15s',
+                transition: isDragging ? 'none' : 'width 0.15s',
                 overflow: 'hidden',
                 whiteSpace: 'nowrap',
               }}
@@ -154,7 +149,7 @@ function WeightBar({
               textAlign: 'center',
               fontSize: 12,
               fontWeight: 600,
-              color: DIMENSION_COLORS[dim],
+              color: dimensionStyles[dim].text,
               overflow: 'hidden',
               whiteSpace: 'nowrap',
             }}
@@ -207,11 +202,15 @@ export function WeightEditorCard({
                     width: 10,
                     height: 10,
                     borderRadius: '50%',
-                    backgroundColor: DIMENSION_COLORS[dim],
+                    backgroundColor: dimensionStyles[dim].solid,
                     flexShrink: 0,
                   }}
                 />
-                <Typography variant="body2" fontWeight={600} sx={{ whiteSpace: 'nowrap' }}>
+                <Typography
+                  variant="body2"
+                  fontWeight={600}
+                  sx={{ whiteSpace: 'nowrap', color: dimensionStyles[dim].text }}
+                >
                   {dimensionLabels[dim]}
                 </Typography>
               </Stack>

@@ -21,6 +21,7 @@ import {
   type PreferenceWeights,
 } from '../api'
 import { loadGoogleMapsScript } from '../googleMapsLoader'
+import { dimensionLabels, dimensionStyles } from '../types'
 import type { Dimension, Neighborhood } from '../types'
 
 type ProfileFormProps = {
@@ -52,13 +53,6 @@ const DEFAULT_PREFERENCE_WEIGHTS: PreferenceWeights = {
   environment: 20,
 }
 const PREFERENCE_DIMENSIONS: Dimension[] = ['safety', 'transit', 'convenience', 'parking', 'environment']
-const PREFERENCE_LABELS: Record<Dimension, string> = {
-  safety: 'Safety',
-  transit: 'Transit',
-  convenience: 'Convenience',
-  parking: 'Parking',
-  environment: 'Environment',
-}
 
 const quickPrompts = [
   'Which neighborhoods are best for a budget under $2,000 with easy commuting?',
@@ -903,13 +897,19 @@ export function ProfileForm({
                         {PREFERENCE_DIMENSIONS.map((key) => {
                           const value = displayWeights[key]
                           const active = Math.abs(value - 20) > 5
+                          const style = dimensionStyles[key]
                           return (
                             <Chip
                               key={key}
-                              label={`${PREFERENCE_LABELS[key]} ${Math.round(value)}%`}
+                              label={`${dimensionLabels[key]} ${Math.round(value)}%`}
                               size="small"
-                              color={active ? 'primary' : 'default'}
-                              variant={active ? 'filled' : 'outlined'}
+                              variant="outlined"
+                              sx={{
+                                fontWeight: 700,
+                                backgroundColor: active ? style.solid : style.soft,
+                                color: active ? style.contrastText : style.text,
+                                borderColor: active ? style.solid : style.border,
+                              }}
                             />
                           )
                         })}
