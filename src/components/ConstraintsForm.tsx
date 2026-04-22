@@ -5,6 +5,7 @@ import {
   Chip,
   Divider,
   LinearProgress,
+  Link,
   Stack,
   Typography,
 } from '@mui/material'
@@ -165,6 +166,43 @@ function buildAffordabilityCopy(metrics: ApiMetrics | null): string {
   return `Median rent is ${medianRent}. This area looks premium-priced, so budget headroom matters before committing.`
 }
 
+function normalizeWebHighlights(insight: ApiCommunityInsight | null): string[] {
+  return (insight?.community_web_info?.highlights ?? []).filter(
+    (item): item is string => Boolean(item?.trim()),
+  )
+}
+
+type InlineLink = {
+  href: string
+  label: string
+}
+
+type InlineContent = {
+  text: string
+  links: InlineLink[]
+}
+
+function extractInlineContent(content: string | null | undefined): InlineContent {
+  if (!content?.trim()) {
+    return { text: '', links: [] }
+  }
+
+  const links: InlineLink[] = []
+  const markdownLinkPattern = /\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g
+
+  const text = content
+    .replace(markdownLinkPattern, (_, label: string, href: string) => {
+      links.push({ label: label.trim(), href: href.trim() })
+      return ''
+    })
+    .replace(/\(\s*\)/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/\s+([,.;:!?])/g, '$1')
+    .trim()
+
+  return { text, links }
+}
+
 type ConstraintsFormProps = {
   selectedNeighborhoodData: Neighborhood
   weights: Record<Dimension, number>
@@ -190,6 +228,16 @@ export function ConstraintsForm({
   const overallCommentary =
     insight?.overall_commentary
     ?? 'Live neighborhood insight is unavailable right now. The scorecards below are based on backend metrics only.'
+  const communityWebInfo = insight?.community_web_info ?? null
+  const communityOverviewSummary = extractInlineContent(communityWebInfo?.summary)
+  const communityOverviewHighlights = normalizeWebHighlights(insight)
+    .slice(0, 4)
+    .map((highlight) => extractInlineContent(highlight))
+    .filter((item) => item.text || item.links.length > 0)
+  const hasCommunityWebInfo =
+    Boolean(communityOverviewSummary.text)
+    || communityOverviewSummary.links.length > 0
+    || communityOverviewHighlights.length > 0
   const tradeoffCopy = buildTradeoffCopy(selectedNeighborhoodData, insightCommentary, metrics)
   const affordabilityCopy = buildAffordabilityCopy(metrics)
 
@@ -352,6 +400,79 @@ export function ConstraintsForm({
                 {overallCommentary}
               </Typography>
             </Stack>
+
+            {hasCommunityWebInfo && (
+              <Card
+                variant="outlined"
+                sx={{
+                  borderColor: '#D7DDE8',
+                  backgroundColor: '#F8FAFC',
+                  boxShadow: 'none',
+                }}
+              >
+                <CardContent sx={{ p: { xs: 2, md: 2.5 }, '&:last-child': { pb: { xs: 2, md: 2.5 } } }}>
+                  <Stack spacing={1.5}>
+                    <Typography variant="subtitle1" fontWeight={800}>
+                      Community Overview
+                    </Typography>
+
+                    {(communityOverviewSummary.text || communityOverviewSummary.links.length > 0) && (
+                      <Typography
+                        variant="body1"
+                        color="text.secondary"
+                        sx={{ lineHeight: 1.8, fontSize: { xs: '1.02rem', md: '1.08rem' } }}
+                      >
+                        {communityOverviewSummary.text}
+                        {communityOverviewSummary.links.map((link, index) => (
+                          <Box component="span" key={`${link.href}-${link.label}`} sx={{ ml: 0.75 }}>
+                            <Link
+                              href={link.href}
+                              target="_blank"
+                              rel="noreferrer"
+                              underline="hover"
+                              sx={{ fontSize: 'inherit', fontWeight: 600 }}
+                            >
+                              {link.label}
+                            </Link>
+                            {index < communityOverviewSummary.links.length - 1 ? ',' : ''}
+                          </Box>
+                        ))}
+                      </Typography>
+                    )}
+
+                    {communityOverviewHighlights.length > 0 && (
+                      <Box component="ul" sx={{ m: 0, pl: 2.5, color: 'text.secondary' }}>
+                        {communityOverviewHighlights.map((highlight, index) => (
+                          <Box component="li" key={`${highlight.text}-${index}`} sx={{ mb: 1 }}>
+                            <Typography
+                              variant="body1"
+                              color="inherit"
+                              sx={{ lineHeight: 1.8, fontSize: { xs: '1rem', md: '1.05rem' } }}
+                            >
+                              {highlight.text}
+                              {highlight.links.map((link, linkIndex) => (
+                                <Box component="span" key={`${link.href}-${link.label}`} sx={{ ml: 0.75 }}>
+                                  <Link
+                                    href={link.href}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    underline="hover"
+                                    sx={{ fontSize: 'inherit', fontWeight: 600 }}
+                                  >
+                                    {link.label}
+                                  </Link>
+                                  {linkIndex < highlight.links.length - 1 ? ',' : ''}
+                                </Box>
+                              ))}
+                            </Typography>
+                          </Box>
+                        ))}
+                      </Box>
+                    )}
+                  </Stack>
+                </CardContent>
+              </Card>
+            )}
 
             <Divider />
 

@@ -40,6 +40,20 @@ export type ApiInsightDimension = {
   commentary: string
 }
 
+export type ApiCommunityWebInfoSource =
+  | string
+  | {
+      title?: string | null
+      label?: string | null
+      url: string
+    }
+
+export type ApiCommunityWebInfo = {
+  summary: string | null
+  highlights: string[] | null
+  sources: ApiCommunityWebInfoSource[] | null
+}
+
 export type ApiCommunityInsight = {
   community_id: string
   name: string
@@ -48,6 +62,7 @@ export type ApiCommunityInsight = {
   posts_analyzed: number
   dimensions: ApiInsightDimension[]
   overall_commentary: string
+  community_web_info?: ApiCommunityWebInfo | null
 }
 
 export type ApiCompareResult = {
