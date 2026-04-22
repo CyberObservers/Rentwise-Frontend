@@ -232,8 +232,8 @@ export const scoreNeighborhood = (neighborhood: Neighborhood, weights: Record<Di
   // Prevent division by zero
   if (usedWeight === 0) return 0
   
-  // Normalize the score based on the actual weight used
-  return Math.round(weightedSum / usedWeight)
+  // Keep one decimal place so UI score bars respond to smaller weight changes.
+  return Number((weightedSum / usedWeight).toFixed(1))
 }
 
 /**
