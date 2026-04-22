@@ -17,10 +17,12 @@ import {
 import type { ApiCompareResult } from '../api'
 import { dimensionLabels, dimensions } from '../types'
 import type { Dimension, Neighborhood } from '../types'
+import { WeightEditorCard } from './WeightEditorCard'
 
 type DashboardProps = {
   neighborhoods: Neighborhood[]
   weights: Record<Dimension, number>
+  onWeightsChange: (nextWeights: Record<Dimension, number>) => void
   topDrivers: string[]
   leftNeighborhood: string
   rightNeighborhood: string
@@ -38,6 +40,7 @@ type DashboardProps = {
 export function Dashboard({
   neighborhoods,
   weights,
+  onWeightsChange,
   topDrivers,
   leftNeighborhood,
   rightNeighborhood,
@@ -52,6 +55,10 @@ export function Dashboard({
   compareError,
 }: DashboardProps) {
   const isSameNeighborhood = leftNeighborhood === rightNeighborhood
+  const formatScore = (score: number) => score.toFixed(1)
+  const formatRawValue = (value: number) =>
+    Number.isInteger(value) ? String(value) : value.toFixed(value < 10 ? 2 : 1)
+  const neutralWeight = 100 / dimensions.length
 
   const statRows = dimensions.map((dimension) => {
     const leftRaw = leftData.objective[dimension] ?? 0
@@ -59,20 +66,48 @@ export function Dashboard({
     const clampToScoreRange = (value: number) => Math.max(0, Math.min(100, value))
     const leftClamped = clampToScoreRange(leftRaw)
     const rightClamped = clampToScoreRange(rightRaw)
+    const leftContribution = Number(((leftClamped * weights[dimension]) / 100).toFixed(1))
+    const rightContribution = Number(((rightClamped * weights[dimension]) / 100).toFixed(1))
+    const leftWeightedScore = Number(
+      Math.min(100, (leftClamped * weights[dimension]) / neutralWeight).toFixed(1),
+    )
+    const rightWeightedScore = Number(
+      Math.min(100, (rightClamped * weights[dimension]) / neutralWeight).toFixed(1),
+    )
 
     return {
       key: dimension,
       label: dimensionLabels[dimension],
+      weight: weights[dimension],
       leftValue: leftRaw,
       rightValue: rightRaw,
-      leftPercent: leftClamped,
-      rightPercent: rightClamped,
+      leftContribution,
+      rightContribution,
+      leftWeightedScore,
+      rightWeightedScore,
+      leftPercent: leftWeightedScore,
+      rightPercent: rightWeightedScore,
       isLeftWinner: leftRaw > rightRaw,
       isRightWinner: rightRaw > leftRaw,
     }
   })
+
+  const overallLeftScore = Number(
+    statRows.reduce((sum, row) => sum + row.leftContribution, 0).toFixed(1),
+  )
+  const overallRightScore = Number(
+    statRows.reduce((sum, row) => sum + row.rightContribution, 0).toFixed(1),
+  )
+
   return (
     <Stack spacing={3}>
+      <WeightEditorCard
+        title="Tune priorities live on this page"
+        description="Adjust any weight here and the comparison scores below will update immediately."
+        weights={weights}
+        onChange={onWeightsChange}
+      />
+
       <Card>
         <CardContent>
           <Stack spacing={1.5}>
@@ -150,7 +185,7 @@ export function Dashboard({
                   {leftData.name}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  Match Score {leftScore}/100
+                  Match Score {formatScore(overallLeftScore)}/100
                 </Typography>
               </Box>
               <Typography
@@ -164,7 +199,7 @@ export function Dashboard({
                   {rightData.name}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  Match Score {rightScore}/100
+                  Match Score {formatScore(overallRightScore)}/100
                 </Typography>
               </Box>
             </Stack>
@@ -189,7 +224,7 @@ export function Dashboard({
                           {leftData.name}
                         </Typography>
                         <Typography variant="body2" fontWeight={700}>
-                          {leftScore}
+                          {formatScore(overallLeftScore)}
                         </Typography>
                       </Stack>
                       <Box
@@ -203,7 +238,7 @@ export function Dashboard({
                         <Box
                           sx={{
                             height: '100%',
-                            width: `${leftScore}%`,
+                            width: `${overallLeftScore}%`,
                             backgroundColor: '#0B5FFF',
                           }}
                         />
@@ -216,7 +251,7 @@ export function Dashboard({
                           {rightData.name}
                         </Typography>
                         <Typography variant="body2" fontWeight={700}>
-                          {rightScore}
+                          {formatScore(overallRightScore)}
                         </Typography>
                       </Stack>
                       <Box
@@ -230,7 +265,7 @@ export function Dashboard({
                         <Box
                           sx={{
                             height: '100%',
-                            width: `${rightScore}%`,
+                            width: `${overallRightScore}%`,
                             backgroundColor: '#009D77',
                           }}
                         />
@@ -243,30 +278,44 @@ export function Dashboard({
               <Stack key={row.key} spacing={0.9}>
                     <Stack direction="row" alignItems="center">
                       <Box sx={{ flex: 1 }}>
-                        <Typography
-                          variant="body1"
-                          fontWeight={row.isLeftWinner ? 700 : 500}
-                          textAlign="left"
-                        >
-                          {row.leftValue}
-                        </Typography>
+                        <Stack spacing={0.25}>
+                          <Typography
+                            variant="body1"
+                            fontWeight={row.isLeftWinner ? 700 : 500}
+                            textAlign="left"
+                          >
+                            {formatScore(row.leftWeightedScore)}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary" textAlign="left">
+                            Raw {formatRawValue(row.leftValue)} · {formatScore(row.leftContribution)} pts
+                          </Typography>
+                        </Stack>
                       </Box>
-                      <Typography
-                        variant="body1"
-                        fontWeight={700}
-                        textAlign="center"
-                        sx={{ width: { xs: 112, md: 160 } }}
-                      >
-                        {row.label}
-                      </Typography>
-                      <Box sx={{ flex: 1 }}>
+                      <Stack spacing={0.25} sx={{ width: { xs: 112, md: 160 } }}>
                         <Typography
                           variant="body1"
-                          fontWeight={row.isRightWinner ? 700 : 500}
-                          textAlign="right"
+                          fontWeight={700}
+                          textAlign="center"
                         >
-                          {row.rightValue}
+                          {row.label}
                         </Typography>
+                        <Typography variant="caption" color="text.secondary" textAlign="center">
+                          Weight {row.weight}%
+                        </Typography>
+                      </Stack>
+                      <Box sx={{ flex: 1 }}>
+                        <Stack spacing={0.25}>
+                          <Typography
+                            variant="body1"
+                            fontWeight={row.isRightWinner ? 700 : 500}
+                            textAlign="right"
+                          >
+                            {formatScore(row.rightWeightedScore)}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary" textAlign="right">
+                            Raw {formatRawValue(row.rightValue)} · {formatScore(row.rightContribution)} pts
+                          </Typography>
+                        </Stack>
                       </Box>
                     </Stack>
 
@@ -322,7 +371,11 @@ export function Dashboard({
 
             <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
               <Chip
-                label={leftScore >= rightScore ? `${leftData.name} is leading` : `${rightData.name} is leading`}
+                label={
+                  overallLeftScore >= overallRightScore
+                    ? `${leftData.name} is leading`
+                    : `${rightData.name} is leading`
+                }
                 color="primary"
               />
               <Chip label="Head-to-head comparison view" variant="outlined" />

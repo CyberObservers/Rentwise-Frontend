@@ -86,8 +86,8 @@ export function WeightEditorCard({
       }}
     >
       <CardContent>
-        <Stack spacing={2.5}>
-          <Stack spacing={1}>
+        <Stack spacing={2}>
+          <Stack spacing={0.75}>
             <Typography variant="h6">{title}</Typography>
             <Typography color="text.secondary">{description}</Typography>
           </Stack>
@@ -110,40 +110,28 @@ export function WeightEditorCard({
                 borderRadius: 2,
                 border: '1px solid',
                 borderColor: 'divider',
-                p: 2,
+                p: 1.5,
                 backgroundColor: '#FBFCFE',
               }}
             >
-              <Stack spacing={1.4}>
-                <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
-                  <Box>
+              <Stack spacing={1}>
+                <Stack
+                  direction={{ xs: 'column', lg: 'row' }}
+                  spacing={1.25}
+                  alignItems={{ lg: 'center' }}
+                >
+                  <Box sx={{ width: { lg: 280 }, flexShrink: 0 }}>
                     <Typography fontWeight={700}>{dimensionLabels[dimension]}</Typography>
-                    <Typography variant="body2" color="text.secondary">
+                    <Typography
+                      variant="body2"
+                      color="text.secondary"
+                      sx={{ whiteSpace: { lg: 'nowrap' } }}
+                    >
                       {dimensionHints[dimension]}
                     </Typography>
                   </Box>
-                  <Chip label={`${weights[dimension]}%`} sx={{ fontWeight: 800 }} />
-                </Stack>
 
-                <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.2} alignItems={{ md: 'center' }}>
-                  <Stack direction="row" spacing={1}>
-                    <Button
-                      variant="outlined"
-                      onClick={() => handleAdjust(dimension, -5)}
-                      disabled={weights[dimension] <= 0}
-                    >
-                      -5
-                    </Button>
-                    <Button
-                      variant="outlined"
-                      onClick={() => handleAdjust(dimension, -1)}
-                      disabled={weights[dimension] <= 0}
-                    >
-                      -1
-                    </Button>
-                  </Stack>
-
-                  <Box sx={{ flex: 1, px: { md: 1 } }}>
+                  <Box sx={{ flex: 1, px: { lg: 1 } }}>
                     <Slider
                       value={weights[dimension]}
                       min={0}
@@ -152,10 +140,35 @@ export function WeightEditorCard({
                       onChange={(_, value) => commitWeight(dimension, value as number)}
                       valueLabelDisplay="auto"
                       color={dimension === topDrivers[0]?.split(' ')[0] ? 'primary' : 'secondary'}
+                      sx={{ my: { xs: 0.5, lg: 0 } }}
                     />
                   </Box>
 
-                  <Stack direction="row" spacing={1}>
+                  <Stack
+                    direction="row"
+                    spacing={1}
+                    alignItems="center"
+                    justifyContent={{ xs: 'space-between', lg: 'flex-end' }}
+                    sx={{ width: { lg: 460 }, flexShrink: 0 }}
+                  >
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={() => handleAdjust(dimension, -5)}
+                      disabled={weights[dimension] <= 0}
+                      sx={{ minWidth: 56 }}
+                    >
+                      -5
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={() => handleAdjust(dimension, -1)}
+                      disabled={weights[dimension] <= 0}
+                      sx={{ minWidth: 56 }}
+                    >
+                      -1
+                    </Button>
                     <OutlinedInput
                       size="small"
                       value={inputValues[dimension]}
@@ -168,20 +181,25 @@ export function WeightEditorCard({
                       }}
                       inputProps={{ inputMode: 'numeric', pattern: '[0-9]*', min: 0, max: 100 }}
                       endAdornment={<InputAdornment position="end">%</InputAdornment>}
-                      sx={{ width: 112 }}
+                      sx={{ width: 96 }}
                     />
+                    <Chip label={`${weights[dimension]}%`} size="small" sx={{ fontWeight: 800 }} />
                     <Button
+                      size="small"
                       variant="contained"
                       onClick={() => handleAdjust(dimension, 1)}
                       disabled={weights[dimension] >= 100}
+                      sx={{ minWidth: 56 }}
                     >
                       +1
                     </Button>
                     <Button
+                      size="small"
                       variant="contained"
                       color="secondary"
                       onClick={() => handleAdjust(dimension, 5)}
                       disabled={weights[dimension] >= 100}
+                      sx={{ minWidth: 56 }}
                     >
                       +5
                     </Button>
