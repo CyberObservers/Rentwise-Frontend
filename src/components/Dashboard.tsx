@@ -47,8 +47,6 @@ export function Dashboard({
   onNeighborhoodChange,
   leftData,
   rightData,
-  leftScore,
-  rightScore,
   recommendation,
   compareResult,
   compareLoading,

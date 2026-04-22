@@ -11,7 +11,7 @@ import {
   Typography,
 } from '@mui/material'
 import type { SelectChangeEvent } from '@mui/material'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 
 import {
@@ -34,11 +34,19 @@ import {
   scoreNeighborhood,
 } from './logic'
 import type { Dimension, Neighborhood } from './types'
-import { ConstraintsForm } from './components/ConstraintsForm'
-import { Dashboard } from './components/Dashboard'
 import { NavigationStepper } from './components/NavigationStepper'
 import { ProfileForm } from './components/ProfileForm'
-import { ReviewPage } from './components/ReviewPage'
+import { loadGoogleMapsScript } from './googleMapsLoader'
+
+const ConstraintsForm = lazy(async () => ({
+  default: (await import('./components/ConstraintsForm')).ConstraintsForm,
+}))
+const Dashboard = lazy(async () => ({
+  default: (await import('./components/Dashboard')).Dashboard,
+}))
+const ReviewPage = lazy(async () => ({
+  default: (await import('./components/ReviewPage')).ReviewPage,
+}))
 
 const steps = ['Explore', 'Insights', 'Compare', 'Reviews']
 const DEFAULT_WEIGHTS: Record<Dimension, number> = {
@@ -97,6 +105,15 @@ function replaceNeighborhood(
   return neighborhoods.map((item) => (item.id === nextNeighborhood.id ? nextNeighborhood : item))
 }
 
+function StepFallback() {
+  return (
+    <Stack alignItems="center" spacing={1.5} sx={{ py: 6 }}>
+      <CircularProgress size={28} />
+      <Typography color="text.secondary">Loading step...</Typography>
+    </Stack>
+  )
+}
+
 function App() {
   const [activeStep, setActiveStep] = useState(0)
   const [selectedNeighborhood, setSelectedNeighborhood] = useState('')
@@ -134,6 +151,12 @@ function App() {
   const [recommendationsError, setRecommendationsError] = useState<string | null>(null)
   const recommendationRequestIdRef = useRef(0)
   const defaultRecommendationRequestedRef = useRef(false)
+
+  useEffect(() => {
+    // Start downloading the Maps SDK as soon as the app boots so it can load in
+    // parallel with the community list request instead of after it.
+    void loadGoogleMapsScript().catch(() => {})
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -519,52 +542,58 @@ function App() {
               )}
 
               {activeStep === 1 && (
-                <Fade in={activeStep === 1}>
-                  <div>
-                    <ConstraintsForm
-                      selectedNeighborhoodData={selectedNeighborhoodData}
-                      weights={weights}
-                      onWeightsChange={handleWeightsChange}
-                      aiSuggestedWeights={llmWeights}
-                      modelPrompt={modelPrompt}
-                      metrics={selectedMetrics}
-                      insight={selectedInsight}
-                      insightLoading={selectedInsightLoading}
-                    />
-                  </div>
-                </Fade>
+                <Suspense fallback={<StepFallback />}>
+                  <Fade in={activeStep === 1}>
+                    <div>
+                      <ConstraintsForm
+                        selectedNeighborhoodData={selectedNeighborhoodData}
+                        weights={weights}
+                        onWeightsChange={handleWeightsChange}
+                        aiSuggestedWeights={llmWeights}
+                        modelPrompt={modelPrompt}
+                        metrics={selectedMetrics}
+                        insight={selectedInsight}
+                        insightLoading={selectedInsightLoading}
+                      />
+                    </div>
+                  </Fade>
+                </Suspense>
               )}
 
               {isOnDashboard && (
-                <Fade in={isOnDashboard}>
-                  <div>
-                    <Dashboard
-                      neighborhoods={communities}
-                      weights={weights}
-                      onWeightsChange={handleWeightsChange}
-                      topDrivers={topDrivers}
-                      leftNeighborhood={leftNeighborhood}
-                      rightNeighborhood={rightNeighborhood}
-                      onNeighborhoodChange={handleNeighborhoodSelect}
-                      leftData={leftData}
-                      rightData={rightData}
-                      leftScore={leftScore}
-                      rightScore={rightScore}
-                      recommendation={recommendation}
-                      compareResult={compareResult}
-                      compareLoading={compareLoading}
-                      compareError={compareError}
-                    />
-                  </div>
-                </Fade>
+                <Suspense fallback={<StepFallback />}>
+                  <Fade in={isOnDashboard}>
+                    <div>
+                      <Dashboard
+                        neighborhoods={communities}
+                        weights={weights}
+                        onWeightsChange={handleWeightsChange}
+                        topDrivers={topDrivers}
+                        leftNeighborhood={leftNeighborhood}
+                        rightNeighborhood={rightNeighborhood}
+                        onNeighborhoodChange={handleNeighborhoodSelect}
+                        leftData={leftData}
+                        rightData={rightData}
+                        leftScore={leftScore}
+                        rightScore={rightScore}
+                        recommendation={recommendation}
+                        compareResult={compareResult}
+                        compareLoading={compareLoading}
+                        compareError={compareError}
+                      />
+                    </div>
+                  </Fade>
+                </Suspense>
               )}
 
               {isOnReviewPage && (
-                <Fade in={isOnReviewPage}>
-                  <div>
-                    <ReviewPage neighborhoods={communities} />
-                  </div>
-                </Fade>
+                <Suspense fallback={<StepFallback />}>
+                  <Fade in={isOnReviewPage}>
+                    <div>
+                      <ReviewPage neighborhoods={communities} />
+                    </div>
+                  </Fade>
+                </Suspense>
               )}
 
               <Stack direction="row" justifyContent="space-between" sx={{ mt: 2 }}>
