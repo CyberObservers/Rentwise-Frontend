@@ -273,12 +273,12 @@ function App() {
 
   const recommendation = useMemo(() => {
     if (!leftData || !rightData) return 'Live comparison is not ready yet.'
-    if (leftScore === rightScore) {
-      return `Both neighborhoods are tied at ${leftScore}/100 with your current weights.`
+    if (Math.abs(leftScore - rightScore) < 0.1) {
+      return `Both neighborhoods are tied at ${leftScore.toFixed(1)}/100 with your current weights.`
     }
 
     const preferred = leftScore > rightScore ? leftData.name : rightData.name
-    const diff = Math.abs(leftScore - rightScore)
+    const diff = Math.abs(leftScore - rightScore).toFixed(1)
     return `${preferred} leads by ${diff} points based on the current backend metrics and your selected weights.`
   }, [leftData, leftScore, rightData, rightScore])
 
@@ -541,6 +541,7 @@ function App() {
                     <Dashboard
                       neighborhoods={communities}
                       weights={weights}
+                      onWeightsChange={handleWeightsChange}
                       topDrivers={topDrivers}
                       leftNeighborhood={leftNeighborhood}
                       rightNeighborhood={rightNeighborhood}
