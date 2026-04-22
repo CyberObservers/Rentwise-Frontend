@@ -584,6 +584,8 @@ function ReviewWordCloud({
     [entries, threadCountByTerm],
   )
   const cloudHeight = entries.length < 10 ? 180 : entries.length < 16 ? 220 : 260
+  const renderedLayoutWords =
+    cloudData.length === 0 || cloudWidth <= 0 ? [] : layoutWords
 
   useEffect(() => {
     const node = cloudRef.current
@@ -602,10 +604,7 @@ function ReviewWordCloud({
   }, [])
 
   useEffect(() => {
-    if (cloudData.length === 0 || cloudWidth <= 0) {
-      setLayoutWords([])
-      return
-    }
+    if (cloudData.length === 0 || cloudWidth <= 0) return
 
     const width = Math.max(300, cloudWidth - 12)
     const height = cloudHeight
@@ -639,10 +638,10 @@ function ReviewWordCloud({
               minHeight: cloudHeight + 20,
             }}
           >
-            {cloudWidth > 0 && layoutWords.length > 0 && (
+            {cloudWidth > 0 && renderedLayoutWords.length > 0 && (
               <svg width="100%" height={cloudHeight} viewBox={`0 0 ${Math.max(300, cloudWidth - 12)} ${cloudHeight}`}>
                 <g transform={`translate(${Math.max(300, cloudWidth - 12) / 2},${cloudHeight / 2})`}>
-                  {layoutWords.map((word, index) => {
+                  {renderedLayoutWords.map((word, index) => {
                     const tone = index % 3 === 0
                       ? theme.palette.primary.main
                       : index % 3 === 1

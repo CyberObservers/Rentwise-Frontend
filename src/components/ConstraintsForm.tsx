@@ -9,7 +9,7 @@ import {
   Typography,
 } from '@mui/material'
 import type { ApiCommunityInsight, ApiMetrics } from '../api'
-import { dimensionLabels, dimensions } from '../data'
+import { dimensionLabels, dimensions } from '../types'
 import type { Dimension, Neighborhood } from '../types'
 import { WeightEditorCard } from './WeightEditorCard'
 
@@ -19,6 +19,7 @@ function getBestFitProfile(objective: Record<Dimension, number | null>): string 
     .sort((a, b) => (objective[b] ?? 0) - (objective[a] ?? 0))
 
   const top2 = sorted.slice(0, 2)
+  if (top2.length === 0) return 'Live profile unavailable'
   if (top2.includes('transit') && top2.includes('convenience')) return 'Car-free renters & students'
   if (top2.includes('safety') && top2.includes('environment')) return 'Families & quiet-seekers'
   if (top2.includes('safety') && top2.includes('convenience')) return 'Urban professionals'
@@ -106,27 +107,52 @@ function buildInsightCommentaryMap(
   }, {})
 }
 
+function buildMetricFallbackCommentary(
+  dimension: Dimension,
+  score: number | null,
+  metrics: ApiMetrics | null,
+): string {
+  const metricLine = metrics ? formatMetricLine(dimension, metrics) : null
+
+  if (score == null) {
+    return metricLine
+      ? `Live detail is limited right now. ${metricLine}.`
+      : `Live insight for ${dimensionLabels[dimension]} is not available yet.`
+  }
+
+  const strengthLabel =
+    score >= 75 ? 'looks comparatively strong' : score >= 50 ? 'looks mixed' : 'looks like a trade-off'
+
+  if (!metricLine) {
+    return `${dimensionLabels[dimension]} ${strengthLabel} based on the currently available backend metrics.`
+  }
+
+  return `${dimensionLabels[dimension]} ${strengthLabel}. ${metricLine}.`
+}
+
 function buildTradeoffCopy(
   selectedNeighborhoodData: Neighborhood,
   insightCommentary: Partial<Record<Dimension, string>>,
+  metrics: ApiMetrics | null,
 ): string {
   const weakestDimension = [...dimensions].sort(
     (a, b) => (selectedNeighborhoodData.objective[a] ?? 0) - (selectedNeighborhoodData.objective[b] ?? 0),
   )[0]
   const weakestScore = selectedNeighborhoodData.objective[weakestDimension]
   const commentary =
-    insightCommentary[weakestDimension] ?? selectedNeighborhoodData.perception[weakestDimension]
+    insightCommentary[weakestDimension]
+    ?? buildMetricFallbackCommentary(weakestDimension, weakestScore, metrics)
 
-  if (weakestScore == null || weakestScore >= 70) {
-    return selectedNeighborhoodData.tradeoffNote
+  if (weakestScore == null) {
+    return `Live trade-off insight is unavailable right now. ${commentary}`
   }
 
-  return `${dimensionLabels[weakestDimension]} is the main trade-off here. ${commentary}`
+  return `${dimensionLabels[weakestDimension]} is currently the weakest signal at ${Math.round(weakestScore)}/100. ${commentary}`
 }
 
 function buildAffordabilityCopy(metrics: ApiMetrics | null): string {
   if (metrics?.median_rent == null) {
-    return 'Live rent pricing is not available yet, so affordability is estimated from broader neighborhood signals.'
+    return 'Live rent pricing is not available yet, so affordability cannot be estimated from backend rent data.'
   }
 
   const medianRent = `$${Math.round(metrics.median_rent).toLocaleString()}/mo`
@@ -161,9 +187,10 @@ export function ConstraintsForm({
   insightLoading,
 }: ConstraintsFormProps) {
   const insightCommentary = buildInsightCommentaryMap(insight)
-  const postsAnalyzed = insight?.posts_analyzed ?? selectedNeighborhoodData.redditSampleSize
-  const overallCommentary = insight?.overall_commentary ?? selectedNeighborhoodData.tradeoffNote
-  const tradeoffCopy = buildTradeoffCopy(selectedNeighborhoodData, insightCommentary)
+  const overallCommentary =
+    insight?.overall_commentary
+    ?? 'Live neighborhood insight is unavailable right now. The scorecards below are based on backend metrics only.'
+  const tradeoffCopy = buildTradeoffCopy(selectedNeighborhoodData, insightCommentary, metrics)
   const affordabilityCopy = buildAffordabilityCopy(metrics)
 
   return (
@@ -272,25 +299,27 @@ export function ConstraintsForm({
                     fontWeight: 700,
                   }}
                 />
-                <Chip
-                  label={`${postsAnalyzed} community posts analyzed`}
-                  variant="outlined"
-                  sx={{
-                    borderColor: '#C7CEDB',
-                    color: '#344054',
-                    backgroundColor: '#FFFFFF',
-                  }}
-                />
                 {insight && (
-                  <Chip
-                    size="small"
-                    label="Backend insight live"
-                    sx={{
-                      backgroundColor: '#E8F7F1',
-                      color: '#0F7A59',
-                      fontWeight: 700,
-                    }}
-                  />
+                  <>
+                    <Chip
+                      label={`${insight.posts_analyzed} community posts analyzed`}
+                      variant="outlined"
+                      sx={{
+                        borderColor: '#C7CEDB',
+                        color: '#344054',
+                        backgroundColor: '#FFFFFF',
+                      }}
+                    />
+                    <Chip
+                      size="small"
+                      label="Backend insight live"
+                      sx={{
+                        backgroundColor: '#E8F7F1',
+                        color: '#0F7A59',
+                        fontWeight: 700,
+                      }}
+                    />
+                  </>
                 )}
                 {!insight && insightLoading && (
                   <Chip
@@ -301,6 +330,13 @@ export function ConstraintsForm({
                       color: '#1849A9',
                       fontWeight: 700,
                     }}
+                  />
+                )}
+                {!insight && !insightLoading && (
+                  <Chip
+                    size="small"
+                    label="Backend insight unavailable"
+                    variant="outlined"
                   />
                 )}
               </Stack>
@@ -327,7 +363,8 @@ export function ConstraintsForm({
               {dimensions.map((dimension) => {
                 const score = selectedNeighborhoodData.objective[dimension]
                 const commentary =
-                  insightCommentary[dimension] ?? selectedNeighborhoodData.perception[dimension]
+                  insightCommentary[dimension]
+                  ?? buildMetricFallbackCommentary(dimension, score, metrics)
                 const { label, sx } = getMatchChip(score)
 
                 return (

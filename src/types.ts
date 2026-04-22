@@ -1,19 +1,24 @@
 export type Dimension = 'safety' | 'transit' | 'convenience' | 'parking' | 'environment'
 export type ProfileType = 'student' | 'professional' | 'family'
 
+export const dimensions: Dimension[] = ['safety', 'transit', 'convenience', 'parking', 'environment']
+
 export type Neighborhood = {
   id: string
   name: string
+  city: string | null
+  state: string | null
+  center: {
+    lat: number
+    lng: number
+  } | null
   objective: Record<Dimension, number | null>
-  perception: Record<Dimension, string>
-  redditSampleSize: number
-  tradeoffNote: string
 }
 
 export const dimensionLabels: Record<Dimension, string> = {
   safety: 'Safety',
-  transit: 'Transit Access',
-  convenience: 'Daily Convenience',
+  transit: 'Transit',
+  convenience: 'Convenience',
   parking: 'Parking',
   environment: 'Environment',
 }

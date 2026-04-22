@@ -11,8 +11,8 @@ import {
   Typography,
 } from '@mui/material'
 import { useEffect, useState } from 'react'
-import { dimensionLabels, dimensions } from '../data'
 import { getTopDriverDimensions, rebalanceWeights } from '../logic'
+import { dimensionLabels, dimensions } from '../types'
 import type { Dimension } from '../types'
 
 type WeightEditorCardProps = {

@@ -13,7 +13,6 @@ import {
   Typography,
 } from '@mui/material'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { neighborhoods } from '../data'
 import {
   postChat,
   type ApiCommunityDetail,
@@ -24,6 +23,7 @@ import {
 import type { Dimension, Neighborhood } from '../types'
 
 type ProfileFormProps = {
+  neighborhoods: Neighborhood[]
   selectedNeighborhood: string
   setSelectedNeighborhood: (value: string) => void
   communityInput: string
@@ -69,6 +69,93 @@ type RgbColor = {
   r: number
   g: number
   b: number
+}
+
+type MapPosition = {
+  lat: number
+  lng: number
+}
+
+type MarkerLabel = ReturnType<typeof getMarkerLabel>
+
+type MarkerIcon = {
+  path: unknown
+  fillColor: string
+  fillOpacity: number
+  strokeColor: string
+  strokeWeight: number
+  scale: number
+}
+
+type MapLike = {
+  addListener: (eventName: string, handler: () => void) => void
+  getZoom?: () => number | undefined
+  panTo: (position: MapPosition) => void
+  setZoom: (zoom: number) => void
+}
+
+type MarkerLike = {
+  addListener: (eventName: string, handler: () => void) => void
+  setIcon: (icon: MarkerIcon) => void
+  setLabel: (label?: MarkerLabel) => void
+  setVisible: (visible: boolean) => void
+}
+
+type CircleLike = {
+  setOptions: (options: {
+    radius: number
+    fillColor: string
+    fillOpacity: number
+    strokeColor: string
+    strokeWeight: number
+  }) => void
+  setVisible: (visible: boolean) => void
+}
+
+type InfoWindowLike = {
+  close: () => void
+  open: (options: { anchor: MarkerLike; map: MapLike | null }) => void
+  setContent: (content: string) => void
+}
+
+type GoogleMapsApi = {
+  Circle: new (options: {
+    map: MapLike | null
+    center: MapPosition
+    radius: number
+    fillColor: string
+    fillOpacity: number
+    strokeColor: string
+    strokeOpacity: number
+    strokeWeight: number
+  }) => CircleLike
+  InfoWindow: new () => InfoWindowLike
+  Map: new (container: HTMLDivElement, options: {
+    center: MapPosition
+    zoom: number
+    mapTypeControl: boolean
+    streetViewControl: boolean
+    gestureHandling: string
+    zoomControl: boolean
+  }) => MapLike
+  Marker: new (options: {
+    map: MapLike | null
+    position: MapPosition
+    title: string
+    icon: MarkerIcon
+    label?: MarkerLabel
+  }) => MarkerLike
+  SymbolPath: {
+    CIRCLE: unknown
+  }
+}
+
+declare global {
+  interface Window {
+    google?: {
+      maps?: GoogleMapsApi
+    }
+  }
 }
 
 const MAP_LIGHT_RED: RgbColor = { r: 248, g: 113, b: 113 }
@@ -177,7 +264,11 @@ const getMarkerLabel = (recommendationRank?: number, isSelected = false) => (
     : undefined
 )
 
+const DEFAULT_MAP_CENTER: MapPosition = { lat: 33.6846, lng: -117.8265 }
+const getGoogleMaps = (): GoogleMapsApi | undefined => window.google?.maps
+
 export function ProfileForm({
+  neighborhoods,
   selectedNeighborhood,
   setSelectedNeighborhood,
   communityInput,
@@ -193,14 +284,16 @@ export function ProfileForm({
 }: ProfileFormProps) {
   const chatEndRef = useRef<HTMLDivElement>(null)
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
-  const mapRef = useRef<any>(null)
-  const markersRef = useRef<Record<string, any>>({})
-  const circlesRef = useRef<Record<string, any>>({})
-  const infoWindowRef = useRef<any>(null)
+  const mapRef = useRef<MapLike | null>(null)
+  const markersRef = useRef<Record<string, MarkerLike>>({})
+  const circlesRef = useRef<Record<string, CircleLike>>({})
+  const infoWindowRef = useRef<InfoWindowLike | null>(null)
   const lastAutoFocusedRecommendationRef = useRef<string | null>(null)
   const communityDetailsRef = useRef(communityDetails)
+  const neighborhoodsRef = useRef(neighborhoods)
   const recommendationScoresRef = useRef(recommendationScores)
   useEffect(() => { communityDetailsRef.current = communityDetails }, [communityDetails])
+  useEffect(() => { neighborhoodsRef.current = neighborhoods }, [neighborhoods])
   useEffect(() => { recommendationScoresRef.current = recommendationScores }, [recommendationScores])
   const [mapError, setMapError] = useState<string | null>(null)
   const [isGenerating, setIsGenerating] = useState(false)
@@ -215,20 +308,12 @@ export function ProfileForm({
 
   const neighborhoodCoordinates = useMemo(
     () =>
-      new Map<string, { lat: number; lng: number }>([
-        ['University Town Center', { lat: 33.6497, lng: -117.8408 }],
-        ['Northwood', { lat: 33.7088, lng: -117.7616 }],
-        ['Costa Mesa Border', { lat: 33.667, lng: -117.899 }],
-        ['Irvine Spectrum', { lat: 33.6505, lng: -117.7437 }],
-        ['Woodbridge', { lat: 33.677, lng: -117.7929 }],
-        ['Turtle Rock', { lat: 33.6381, lng: -117.8107 }],
-        ['Portola Springs', { lat: 33.6974, lng: -117.7156 }],
-        ['Great Park', { lat: 33.6673, lng: -117.7243 }],
-        ['Quail Hill', { lat: 33.6495, lng: -117.7750 }],
-        ['Oak Creek', { lat: 33.6719, lng: -117.7754 }],
-        ['Woodbury', { lat: 33.6973, lng: -117.7505 }],
-      ]),
-    [],
+      new Map<string, { lat: number; lng: number }>(
+        neighborhoods
+          .filter((item) => item.center != null)
+          .map((item) => [item.name, item.center as { lat: number; lng: number }]),
+      ),
+    [neighborhoods],
   )
 
   const selectedPosition = neighborhoodCoordinates.get(selectedNeighborhood)
@@ -322,11 +407,11 @@ export function ProfileForm({
     const initializeMap = () => {
       if (!mapContainerRef.current || mapRef.current) return
 
-      const googleMaps = (window as any).google?.maps
+      const googleMaps = getGoogleMaps()
       if (!googleMaps) return
 
       mapRef.current = new googleMaps.Map(mapContainerRef.current, {
-        center: selectedPosition ?? { lat: 33.6846, lng: -117.8265 },
+        center: selectedPosition ?? DEFAULT_MAP_CENTER,
         zoom: mapZoom,
         mapTypeControl: false,
         streetViewControl: false,
@@ -384,8 +469,10 @@ export function ProfileForm({
         })
 
         marker.addListener('mouseover', () => {
-          const safety = neighborhood.objective.safety ?? 0
-          const transit = neighborhood.objective.transit ?? 0
+          const currentNeighborhood =
+            neighborhoodsRef.current.find((item) => item.name === neighborhood.name) ?? neighborhood
+          const safety = currentNeighborhood.objective.safety ?? 0
+          const transit = currentNeighborhood.objective.transit ?? 0
           const overallScore = recommendationScoresRef.current[neighborhood.name] ?? 0
           const rent = communityDetailsRef.current[neighborhood.id]?.metrics?.median_rent
           const rentLine = rent != null
@@ -412,7 +499,7 @@ export function ProfileForm({
     }
 
     const existingScript = document.getElementById('google-maps-script')
-    if ((window as any).google?.maps) {
+    if (getGoogleMaps()) {
       initializeMap()
       return
     }
@@ -437,6 +524,7 @@ export function ProfileForm({
     availableNeighborhoods,
     mapZoom,
     neighborhoodCoordinates,
+    neighborhoods,
     recommendationRankByName,
     recommendationScores,
     selectedPosition,
@@ -470,7 +558,7 @@ export function ProfileForm({
   }, [neighborhoodCoordinates, topRecommendation?.name])
 
   useEffect(() => {
-    const googleMaps = (window as any).google?.maps
+    const googleMaps = getGoogleMaps()
     if (!googleMaps) return
 
     Object.entries(markersRef.current).forEach(([name, marker]) => {
@@ -526,7 +614,7 @@ export function ProfileForm({
       {recommendationItems.length > 0 && (
         <Stack
           direction="row"
-          spacing={1.25}
+          spacing={{ xs: 1, md: 1.25 }}
           useFlexGap
           flexWrap="wrap"
           sx={{ alignItems: 'stretch' }}
@@ -547,18 +635,18 @@ export function ProfileForm({
                   backgroundColor:
                     isActive ? 'rgba(0,157,119,0.07)' : 'rgba(11,95,255,0.04)',
                   display: 'flex',
-                  flexDirection: { xs: 'row', md: 'column' },
-                  alignItems: { xs: 'center', md: 'stretch' },
+                  flexDirection: { xs: 'column', sm: 'row', md: 'column' },
+                  alignItems: { xs: 'stretch', sm: 'center', md: 'stretch' },
                   justifyContent: 'space-between',
                   gap: 1.25,
                 }}
               >
-                <Box sx={{ minWidth: 0 }}>
+                <Box sx={{ minWidth: 0, flex: 1 }}>
                   <Typography
                     variant="body2"
                     fontWeight={700}
                     color={isActive ? 'secondary.main' : 'text.primary'}
-                    sx={{ mb: 0.35 }}
+                    sx={{ mb: 0.35, wordBreak: 'break-word' }}
                   >
                     #{item.rank} {item.name}
                   </Typography>
@@ -570,7 +658,11 @@ export function ProfileForm({
                   size="small"
                   variant="contained"
                   color={isActive ? 'secondary' : 'primary'}
-                  sx={{ alignSelf: { xs: 'center', md: 'flex-start' }, flexShrink: 0 }}
+                  sx={{
+                    alignSelf: { xs: 'stretch', sm: 'center', md: 'flex-start' },
+                    width: { xs: '100%', sm: 'auto', md: 'auto' },
+                    flexShrink: 0,
+                  }}
                   onClick={() => {
                     setSelectedNeighborhood(item.name)
                     setCommunityInput(item.name)
@@ -588,28 +680,35 @@ export function ProfileForm({
 
   return (
     <Card>
-      <CardContent>
-        <Stack spacing={2}>
+      <CardContent sx={{ p: { xs: 1.25, sm: 2, md: 3 }, '&:last-child': { pb: { xs: 1.25, sm: 2, md: 3 } } }}>
+        <Stack spacing={{ xs: 1.5, md: 2 }}>
           <Box
             sx={{
               display: 'grid',
-              gap: 2,
+              gap: { xs: 1.5, md: 2 },
               gridTemplateColumns: { xs: '1fr', md: 'minmax(0, 2.5fr) minmax(320px, 1fr)' },
               alignItems: 'stretch',
             }}
           >
-            <Stack spacing={2}>
+            <Stack spacing={{ xs: 1.5, md: 2 }}>
               <Box
                 sx={{
                   border: 'none',
                   borderColor: 'divider',
                   borderRadius: 2,
-                  p: 2,
+                  p: { xs: 1.25, sm: 2 },
                   backgroundColor: 'background.paper',
                 }}
               >
                 <Stack spacing={1.5}>
-                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.2}>
+                  <Box
+                    sx={{
+                      display: 'grid',
+                      gap: 1,
+                      gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', sm: 'minmax(0, 1fr) auto auto' },
+                      alignItems: 'start',
+                    }}
+                  >
                     <Autocomplete
                       freeSolo
                       options={neighborhoods.map((n) => n.name)}
@@ -624,10 +723,15 @@ export function ProfileForm({
                         )
                         if (exactMatch) setSelectedNeighborhood(exactMatch.name)
                       }}
-                      sx={{ flex: 1 }}
+                      sx={{
+                        gridColumn: { xs: '1 / -1', sm: 'auto' },
+                        minWidth: 0,
+                      }}
                       renderInput={(params) => (
                         <TextField
                           {...params}
+                          size="small"
+                          fullWidth
                           placeholder="Type or select a neighborhood"
                           onKeyDown={(event) => {
                             if (event.key !== 'Enter') return
@@ -636,19 +740,24 @@ export function ProfileForm({
                         />
                       )}
                     />
-                    <Button variant="contained" onClick={syncSelectionFromInput}>
+                    <Button
+                      variant="contained"
+                      onClick={syncSelectionFromInput}
+                      sx={{ width: '100%', minHeight: 40 }}
+                    >
                       Search
                     </Button>
                     <Button
                       variant="outlined"
+                      sx={{ width: '100%', minHeight: 40 }}
                       onClick={() => {
                         setCommunityInput('')
-                        setSelectedNeighborhood(neighborhoods[0].name)
+                        if (neighborhoods[0]) setSelectedNeighborhood(neighborhoods[0].name)
                       }}
                     >
                       Clear
                     </Button>
-                  </Stack>
+                  </Box>
                   {communityInput.trim() && !matchedNeighborhood && (
                     <Alert severity="info" variant="outlined">
                       Custom input captured: "{communityInput}". No exact match in the current dataset yet.
@@ -662,7 +771,7 @@ export function ProfileForm({
                   borderRadius: 2,
                   border: 'none',
                   borderColor: 'divider',
-                  p: 2,
+                  p: { xs: 1.25, sm: 2 },
                   background:
                     'linear-gradient(140deg, rgba(11,95,255,0.08), rgba(0,157,119,0.08))',
                 }}
@@ -674,7 +783,7 @@ export function ProfileForm({
                     ref={mapContainerRef}
                     sx={{
                       width: '100%',
-                      height: { xs: 320, md: 430, lg: 480 },
+                      height: { xs: 260, sm: 320, md: 430, lg: 480 },
                       borderRadius: 2,
                       border: '1px solid',
                       borderColor: 'divider',
@@ -702,11 +811,11 @@ export function ProfileForm({
                 border: '1px solid',
                 borderColor: 'divider',
                 borderRadius: 2,
-                p: 2,
+                p: { xs: 1.25, sm: 2 },
                 backgroundColor: 'background.paper',
                 display: 'flex',
                 flexDirection: 'column',
-                minHeight: { xs: 360, md: 560 },
+                minHeight: { xs: 'auto', md: 560 },
               }}
             >
               <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mb: 1.5 }}>
@@ -724,7 +833,7 @@ export function ProfileForm({
               <Box
                 sx={{
                   flex: 1,
-                  minHeight: 280,
+                  minHeight: { xs: 220, md: 280 },
                   border: '1px solid',
                   borderColor: 'divider',
                   borderRadius: 2,
@@ -794,16 +903,16 @@ export function ProfileForm({
                   sx={{
                     border: '1px solid',
                     borderColor: 'divider',
-                    borderRadius: '28px',
-                    px: 2,
-                    py: 1.5,
+                    borderRadius: { xs: '22px', md: '28px' },
+                    px: { xs: 1.25, md: 2 },
+                    py: { xs: 1.1, md: 1.5 },
                     background: 'linear-gradient(180deg, #FFFFFF 0%, #FBFDFF 100%)',
                     boxShadow: '0 14px 28px rgba(15, 23, 42, 0.06)',
                   }}
                 >
                   <InputBase
                     multiline
-                    minRows={3}
+                    minRows={2}
                     maxRows={8}
                     fullWidth
                     value={chatInput}
