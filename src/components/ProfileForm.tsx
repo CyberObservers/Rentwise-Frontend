@@ -539,10 +539,15 @@ export function ProfileForm({
     mapRef.current.setZoom(mapZoom)
   }, [mapZoom])
 
+  const lastPannedNeighborhoodRef = useRef<string | null>(null)
   useEffect(() => {
-    if (!mapRef.current || !selectedPosition) return
-    mapRef.current.panTo(selectedPosition)
-  }, [selectedPosition])
+    if (!mapRef.current || !selectedNeighborhood) return
+    if (lastPannedNeighborhoodRef.current === selectedNeighborhood) return
+    const pos = neighborhoodCoordinates.get(selectedNeighborhood)
+    if (!pos) return
+    lastPannedNeighborhoodRef.current = selectedNeighborhood
+    mapRef.current.panTo(pos)
+  }, [selectedNeighborhood, neighborhoodCoordinates])
 
   // Zoom in and pan when a chat recommendation is set
   useEffect(() => {
