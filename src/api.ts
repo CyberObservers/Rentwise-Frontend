@@ -257,7 +257,7 @@ export async function postChat(messages: ChatMessagePayload[]): Promise<ChatApiR
 export async function postCompare(
   communityAId: string,
   communityBId: string,
-  weights?: Record<string, number>,
+  weights: Record<string, number>,
 ): Promise<ApiCompareResult> {
   const res = await fetch(`${API_BASE}/compare`, {
     method: 'POST',
@@ -265,9 +265,14 @@ export async function postCompare(
     body: JSON.stringify({
       community_a_id: communityAId,
       community_b_id: communityBId,
-      weights: weights ?? {},
+      weights,
     }),
   })
-  if (!res.ok) throw new Error(`Compare: HTTP ${res.status}`)
+
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`Compare failed: ${res.status}${text ? ` ${text}` : ''}`)
+  }
+
   return res.json() as Promise<ApiCompareResult>
 }

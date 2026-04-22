@@ -15,7 +15,7 @@ import {
   Typography,
 } from '@mui/material'
 import type { ApiCompareResult } from '../api'
-import { dimensionLabels, dimensions } from '../types'
+import { dimensionLabels, dimensions, dimensionStyles } from '../types'
 import type { Dimension, Neighborhood } from '../types'
 import { WeightEditorCard } from './WeightEditorCard'
 
@@ -23,7 +23,7 @@ type DashboardProps = {
   neighborhoods: Neighborhood[]
   weights: Record<Dimension, number>
   onWeightsChange: (nextWeights: Record<Dimension, number>) => void
-  topDrivers: string[]
+  topDrivers: Dimension[]
   leftNeighborhood: string
   rightNeighborhood: string
   onNeighborhoodChange: (side: 'left' | 'right', event: SelectChangeEvent<string>) => void
@@ -76,6 +76,7 @@ export function Dashboard({
     return {
       key: dimension,
       label: dimensionLabels[dimension],
+      style: dimensionStyles[dimension],
       weight: weights[dimension],
       leftValue: leftRaw,
       rightValue: rightRaw,
@@ -114,12 +115,36 @@ export function Dashboard({
               These weights were tuned in Step 2 and are already applied to the comparison below.
             </Typography>
             <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-              <Chip label={`Top drivers: ${topDrivers.join(' • ')}`} color="primary" />
+              <Typography variant="body2" color="text.secondary" sx={{ alignSelf: 'center' }}>
+                Top drivers:
+              </Typography>
+              {topDrivers.map((driver) => {
+                const style = dimensionStyles[driver]
+                return (
+                  <Chip
+                    key={driver}
+                    label={`${dimensionLabels[driver]} ${weights[driver]}%`}
+                    sx={{
+                      backgroundColor: style.soft,
+                      color: style.text,
+                      border: '1px solid',
+                      borderColor: style.border,
+                      fontWeight: 700,
+                    }}
+                  />
+                )
+              })}
               {dimensions.map((dimension) => (
                 <Chip
                   key={dimension}
                   label={`${dimensionLabels[dimension]} ${weights[dimension]}%`}
-                  variant="outlined"
+                  sx={{
+                    backgroundColor: dimensionStyles[dimension].soft,
+                    color: dimensionStyles[dimension].text,
+                    border: '1px solid',
+                    borderColor: dimensionStyles[dimension].border,
+                    fontWeight: 600,
+                  }}
                 />
               ))}
             </Stack>
@@ -294,6 +319,7 @@ export function Dashboard({
                           variant="body1"
                           fontWeight={700}
                           textAlign="center"
+                          sx={{ color: row.style.text }}
                         >
                           {row.label}
                         </Typography>
@@ -333,11 +359,11 @@ export function Dashboard({
                             position: 'absolute',
                             right: 0,
                             top: 0,
-                            bottom: 0,
-                            width: `${row.leftPercent}%`,
-                            backgroundColor: row.isLeftWinner ? '#0B5FFF' : '#8F99AA',
-                          }}
-                        />
+                          bottom: 0,
+                          width: `${row.leftPercent}%`,
+                          backgroundColor: row.isLeftWinner ? row.style.solid : row.style.track,
+                        }}
+                      />
                       </Box>
 
                       <Box sx={{ width: { xs: 16, md: 24 } }} />
@@ -357,11 +383,11 @@ export function Dashboard({
                             position: 'absolute',
                             left: 0,
                             top: 0,
-                            bottom: 0,
-                            width: `${row.rightPercent}%`,
-                            backgroundColor: row.isRightWinner ? '#0B5FFF' : '#8F99AA',
-                          }}
-                        />
+                          bottom: 0,
+                          width: `${row.rightPercent}%`,
+                          backgroundColor: row.isRightWinner ? row.style.solid : row.style.track,
+                        }}
+                      />
                       </Box>
                     </Stack>
               </Stack>
