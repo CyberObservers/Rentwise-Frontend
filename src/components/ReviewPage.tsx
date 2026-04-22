@@ -1,4 +1,5 @@
 import {
+  Alert,
   Card,
   CardContent,
   FormControl,
@@ -10,15 +11,28 @@ import {
 } from '@mui/material'
 import type { SelectChangeEvent } from '@mui/material/Select'
 import { useState } from 'react'
-import { neighborhoods } from '../data'
+import type { Neighborhood } from '../types'
 import { CommunityReviews } from './CommunityReviews'
 
-export function ReviewPage() {
-  const [selectedNeighborhoodId, setSelectedNeighborhoodId] = useState(neighborhoods[0].id)
+type ReviewPageProps = {
+  neighborhoods: Neighborhood[]
+}
+
+export function ReviewPage({ neighborhoods }: ReviewPageProps) {
+  const [selectedNeighborhoodId, setSelectedNeighborhoodId] = useState<string | null>(null)
 
   const handleChange = (event: SelectChangeEvent) => {
     setSelectedNeighborhoodId(event.target.value)
   }
+
+  if (neighborhoods.length === 0) {
+    return <Alert severity="warning">No backend communities are available for reviews yet.</Alert>
+  }
+
+  const resolvedSelectedNeighborhoodId =
+    selectedNeighborhoodId && neighborhoods.some((item) => item.id === selectedNeighborhoodId)
+      ? selectedNeighborhoodId
+      : neighborhoods[0].id
 
   return (
     <Stack spacing={3}>
@@ -35,7 +49,7 @@ export function ReviewPage() {
               <Select
                 labelId="review-neighborhood-select-label"
                 id="review-neighborhood-select"
-                value={selectedNeighborhoodId}
+                value={resolvedSelectedNeighborhoodId}
                 label="Select Neighborhood"
                 onChange={handleChange}
               >
@@ -50,7 +64,7 @@ export function ReviewPage() {
         </CardContent>
       </Card>
 
-      <CommunityReviews communityId={selectedNeighborhoodId} />
+      <CommunityReviews communityId={resolvedSelectedNeighborhoodId} />
     </Stack>
   )
 }

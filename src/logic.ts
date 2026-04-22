@@ -1,5 +1,5 @@
 import type { Dimension, ProfileType } from './types'
-import { dimensions } from './data'
+import { dimensions } from './types'
 import type { Neighborhood } from './types'
 
 /**

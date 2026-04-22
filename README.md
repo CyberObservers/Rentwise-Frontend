@@ -44,7 +44,7 @@ VITE_GOOGLE_MAPS_API_KEY=your_google_maps_browser_key
 - `VITE_API_BASE_URL` — backend base URL. If omitted, the app falls back to `http://localhost:8000`.
 - `VITE_GOOGLE_MAPS_API_KEY` — required for the interactive map in Step 1. Without it the map area shows an error banner.
 
-The frontend expects the [Rentwise-Backend](../Rentwise-Backend) to be running. If the backend is unreachable, the app gracefully falls back to the hardcoded neighborhood data in `src/data.ts`.
+The frontend expects the [Rentwise-Backend](../Rentwise-Backend) to be running. Community data, recommendations, comparison summaries, and reviews are all loaded from backend APIs.
 
 ## Run With Docker
 
@@ -82,8 +82,7 @@ src/
   App.tsx            # wizard state + step orchestration
   api.ts             # backend fetch helpers + scoring mapping + postChat
   logic.ts           # scoreNeighborhood, weight normalization, top drivers
-  data.ts            # hardcoded neighborhood fallback data
-  types.ts           # Dimension, Neighborhood, dimensionLabels
+  types.ts           # Dimension, Neighborhood, shared labels
   components/
     ProfileForm.tsx       # Step 1 (map + LLM chat)
     ConstraintsForm.tsx   # Step 2

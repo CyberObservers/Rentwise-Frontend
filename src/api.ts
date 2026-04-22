@@ -1,4 +1,4 @@
-import type { Dimension } from './types'
+import type { Dimension, Neighborhood } from './types'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
 
@@ -11,6 +11,7 @@ export type ApiCommunity = {
   state: string | null
   center_lat: number | null
   center_lng: number | null
+  updated_at?: string | null
 }
 
 export type ApiMetrics = {
@@ -26,6 +27,7 @@ export type ApiMetrics = {
   noise_avg_db: number | null
   noise_p90_db: number | null
   overall_confidence: number | null
+  updated_at?: string | null
 }
 
 export type ApiCommunityDetail = {
@@ -125,6 +127,41 @@ export function mapBackendScoresToFrontend(
 }
 
 // ── Fetch functions ───────────────────────────────────────────────────────────
+
+export function createEmptyObjective(): Record<Dimension, number | null> {
+  return {
+    safety: null,
+    transit: null,
+    convenience: null,
+    parking: null,
+    environment: null,
+  }
+}
+
+export function buildNeighborhood(detail: ApiCommunityDetail): Neighborhood {
+  const { community, metrics } = detail
+  const center =
+    community.center_lat != null && community.center_lng != null
+      ? { lat: community.center_lat, lng: community.center_lng }
+      : null
+
+  return {
+    id: community.community_id,
+    name: community.name,
+    city: community.city,
+    state: community.state,
+    center,
+    objective: metrics
+      ? mapBackendScoresToFrontend(computeDimensionScores(metrics))
+      : createEmptyObjective(),
+  }
+}
+
+export async function fetchCommunities(): Promise<ApiCommunityDetail[]> {
+  const res = await fetch(`${API_BASE}/communities`)
+  if (!res.ok) throw new Error(`Communities: HTTP ${res.status}`)
+  return res.json() as Promise<ApiCommunityDetail[]>
+}
 
 export async function fetchCommunityDetail(id: string): Promise<ApiCommunityDetail> {
   const res = await fetch(`${API_BASE}/communities/${id}`)

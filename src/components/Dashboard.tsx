@@ -14,11 +14,12 @@ import {
   Stack,
   Typography,
 } from '@mui/material'
-import type { Dimension, Neighborhood } from '../types'
-import { dimensionLabels, dimensions, neighborhoods } from '../data'
 import type { ApiCompareResult } from '../api'
+import { dimensionLabels, dimensions } from '../types'
+import type { Dimension, Neighborhood } from '../types'
 
 type DashboardProps = {
+  neighborhoods: Neighborhood[]
   weights: Record<Dimension, number>
   topDrivers: string[]
   leftNeighborhood: string
@@ -31,9 +32,11 @@ type DashboardProps = {
   recommendation: string
   compareResult: ApiCompareResult | null
   compareLoading: boolean
+  compareError: string | null
 }
 
 export function Dashboard({
+  neighborhoods,
   weights,
   topDrivers,
   leftNeighborhood,
@@ -46,6 +49,7 @@ export function Dashboard({
   recommendation,
   compareResult,
   compareLoading,
+  compareError,
 }: DashboardProps) {
   const isSameNeighborhood = leftNeighborhood === rightNeighborhood
 
@@ -357,7 +361,10 @@ export function Dashboard({
                 )}
               </>
             )}
-            {!compareLoading && !compareResult && (
+            {!compareLoading && !compareResult && compareError && (
+              <Typography color="error">{compareError}</Typography>
+            )}
+            {!compareLoading && !compareResult && !compareError && (
               <Typography>{recommendation}</Typography>
             )}
           </Stack>
