@@ -11,7 +11,7 @@ import {
   Typography,
 } from '@mui/material'
 import type { SelectChangeEvent } from '@mui/material'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 
 import {
@@ -34,11 +34,19 @@ import {
   scoreNeighborhood,
 } from './logic'
 import type { Dimension, Neighborhood } from './types'
-import { ConstraintsForm } from './components/ConstraintsForm'
-import { Dashboard } from './components/Dashboard'
 import { NavigationStepper } from './components/NavigationStepper'
 import { ProfileForm } from './components/ProfileForm'
-import { ReviewPage } from './components/ReviewPage'
+import { loadGoogleMapsScript } from './googleMapsLoader'
+
+const ConstraintsForm = lazy(async () => ({
+  default: (await import('./components/ConstraintsForm')).ConstraintsForm,
+}))
+const Dashboard = lazy(async () => ({
+  default: (await import('./components/Dashboard')).Dashboard,
+}))
+const ReviewPage = lazy(async () => ({
+  default: (await import('./components/ReviewPage')).ReviewPage,
+}))
 
 const steps = ['Explore', 'Insights', 'Compare', 'Reviews']
 const DEFAULT_WEIGHTS: Record<Dimension, number> = {
@@ -94,7 +102,22 @@ function replaceNeighborhood(
   detail: ApiCommunityDetail,
 ): Neighborhood[] {
   const nextNeighborhood = buildNeighborhood(detail)
-  return neighborhoods.map((item) => (item.id === nextNeighborhood.id ? nextNeighborhood : item))
+  let changed = false
+  const nextNeighborhoods = neighborhoods.map((item) => {
+    if (item.id !== nextNeighborhood.id) return item
+    changed = true
+    return nextNeighborhood
+  })
+  return changed ? nextNeighborhoods : neighborhoods
+}
+
+function StepFallback() {
+  return (
+    <Stack alignItems="center" spacing={1.5} sx={{ py: 6 }}>
+      <CircularProgress size={28} />
+      <Typography color="text.secondary">Loading step...</Typography>
+    </Stack>
+  )
 }
 
 function App() {
@@ -119,7 +142,7 @@ function App() {
   const [communityInsights, setCommunityInsights] = useState<Record<string, ApiCommunityInsight>>(
     {},
   )
-  const [communityInsightRequestedIds, setCommunityInsightRequestedIds] = useState<Set<string>>(
+  const [, setCommunityInsightRequestedIds] = useState<Set<string>>(
     new Set(),
   )
   const [communityInsightLoadingIds, setCommunityInsightLoadingIds] = useState<Set<string>>(
@@ -134,6 +157,12 @@ function App() {
   const [recommendationsError, setRecommendationsError] = useState<string | null>(null)
   const recommendationRequestIdRef = useRef(0)
   const defaultRecommendationRequestedRef = useRef(false)
+
+  useEffect(() => {
+    // Start downloading the Maps SDK as soon as the app boots so it can load in
+    // parallel with the community list request instead of after it.
+    void loadGoogleMapsScript().catch(() => {})
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -202,13 +231,18 @@ function App() {
   }, [])
 
   const loadCommunityInsight = useCallback(async (id: string) => {
-    if (!id || communityInsightRequestedIds.has(id)) return
+    if (!id) return
 
+    let shouldFetch = false
     setCommunityInsightRequestedIds((prev) => {
+      if (prev.has(id)) return prev
+      shouldFetch = true
       const next = new Set(prev)
       next.add(id)
       return next
     })
+    if (!shouldFetch) return
+
     setCommunityInsightLoadingIds((prev) => {
       const next = new Set(prev)
       next.add(id)
@@ -238,7 +272,7 @@ function App() {
         })
       }
     }
-  }, [communityInsightRequestedIds])
+  }, [])
 
   const visibleNeighborhoods = useMemo(() => {
     if (mapZoom <= 11) return communities.slice(0, 6)
@@ -262,6 +296,9 @@ function App() {
       ?? selectedNeighborhoodData,
     [communities, leftNeighborhood, rightNeighborhood, selectedNeighborhoodData],
   )
+  const selectedNeighborhoodId = selectedNeighborhoodData?.id ?? ''
+  const leftNeighborhoodId = leftData?.id ?? ''
+  const rightNeighborhoodId = rightData?.id ?? ''
 
   const leftScore = useMemo(
     () => (leftData ? scoreNeighborhood(leftData, weights) : 0),
@@ -361,21 +398,21 @@ function App() {
   }, [communities.length, requestRecommendations])
 
   useEffect(() => {
-    if (selectedNeighborhoodData) {
-      void refreshCommunity(selectedNeighborhoodData.id)
+    if (selectedNeighborhoodId) {
+      void refreshCommunity(selectedNeighborhoodId)
     }
-  }, [refreshCommunity, selectedNeighborhoodData])
+  }, [refreshCommunity, selectedNeighborhoodId])
 
   useEffect(() => {
-    if (activeStep < 1 || !selectedNeighborhoodData) return
-    void loadCommunityInsight(selectedNeighborhoodData.id)
-  }, [activeStep, loadCommunityInsight, selectedNeighborhoodData])
+    if (activeStep < 1 || !selectedNeighborhoodId) return
+    void loadCommunityInsight(selectedNeighborhoodId)
+  }, [activeStep, loadCommunityInsight, selectedNeighborhoodId])
 
   useEffect(() => {
-    if (activeStep < 2 || !leftData || !rightData) return
-    void refreshCommunity(leftData.id)
-    void refreshCommunity(rightData.id)
-  }, [activeStep, leftData, refreshCommunity, rightData])
+    if (activeStep < 2 || !leftNeighborhoodId || !rightNeighborhoodId) return
+    void refreshCommunity(leftNeighborhoodId)
+    void refreshCommunity(rightNeighborhoodId)
+  }, [activeStep, leftNeighborhoodId, refreshCommunity, rightNeighborhoodId])
 
   useEffect(() => {
     if (llmWeights) {
@@ -391,15 +428,15 @@ function App() {
   const isOnReviewPage = activeStep === 3
 
   useEffect(() => {
-    if (!isOnDashboard || !leftData || !rightData) return
-    if (leftData.id === rightData.id) return
+    if (!isOnDashboard || !leftNeighborhoodId || !rightNeighborhoodId) return
+    if (leftNeighborhoodId === rightNeighborhoodId) return
 
     let cancelled = false
     setCompareLoading(true)
     setCompareResult(null)
     setCompareError(null)
 
-    postCompare(leftData.id, rightData.id)
+    postCompare(leftNeighborhoodId, rightNeighborhoodId, weights)
       .then((result) => {
         if (!cancelled) setCompareResult(result)
       })
@@ -417,7 +454,7 @@ function App() {
     return () => {
       cancelled = true
     }
-  }, [isOnDashboard, leftData, rightData])
+  }, [isOnDashboard, leftNeighborhoodId, rightNeighborhoodId, weights])
 
   const handleWeightsChange = (nextWeights: Record<Dimension, number>) => {
     setWeights(nextWeights)
@@ -520,52 +557,58 @@ function App() {
               )}
 
               {activeStep === 1 && (
-                <Fade in={activeStep === 1}>
-                  <div>
-                    <ConstraintsForm
-                      selectedNeighborhoodData={selectedNeighborhoodData}
-                      weights={weights}
-                      onWeightsChange={handleWeightsChange}
-                      aiSuggestedWeights={llmWeights}
-                      modelPrompt={modelPrompt}
-                      metrics={selectedMetrics}
-                      insight={selectedInsight}
-                      insightLoading={selectedInsightLoading}
-                    />
-                  </div>
-                </Fade>
+                <Suspense fallback={<StepFallback />}>
+                  <Fade in={activeStep === 1}>
+                    <div>
+                      <ConstraintsForm
+                        selectedNeighborhoodData={selectedNeighborhoodData}
+                        weights={weights}
+                        onWeightsChange={handleWeightsChange}
+                        aiSuggestedWeights={llmWeights}
+                        modelPrompt={modelPrompt}
+                        metrics={selectedMetrics}
+                        insight={selectedInsight}
+                        insightLoading={selectedInsightLoading}
+                      />
+                    </div>
+                  </Fade>
+                </Suspense>
               )}
 
               {isOnDashboard && (
-                <Fade in={isOnDashboard}>
-                  <div>
-                    <Dashboard
-                      neighborhoods={communities}
-                      weights={weights}
-                      onWeightsChange={handleWeightsChange}
-                      topDrivers={topDrivers}
-                      leftNeighborhood={leftNeighborhood}
-                      rightNeighborhood={rightNeighborhood}
-                      onNeighborhoodChange={handleNeighborhoodSelect}
-                      leftData={leftData}
-                      rightData={rightData}
-                      leftScore={leftScore}
-                      rightScore={rightScore}
-                      recommendation={recommendation}
-                      compareResult={compareResult}
-                      compareLoading={compareLoading}
-                      compareError={compareError}
-                    />
-                  </div>
-                </Fade>
+                <Suspense fallback={<StepFallback />}>
+                  <Fade in={isOnDashboard}>
+                    <div>
+                      <Dashboard
+                        neighborhoods={communities}
+                        weights={weights}
+                        onWeightsChange={handleWeightsChange}
+                        topDrivers={topDrivers}
+                        leftNeighborhood={leftNeighborhood}
+                        rightNeighborhood={rightNeighborhood}
+                        onNeighborhoodChange={handleNeighborhoodSelect}
+                        leftData={leftData}
+                        rightData={rightData}
+                        leftScore={leftScore}
+                        rightScore={rightScore}
+                        recommendation={recommendation}
+                        compareResult={compareResult}
+                        compareLoading={compareLoading}
+                        compareError={compareError}
+                      />
+                    </div>
+                  </Fade>
+                </Suspense>
               )}
 
               {isOnReviewPage && (
-                <Fade in={isOnReviewPage}>
-                  <div>
-                    <ReviewPage neighborhoods={communities} />
-                  </div>
-                </Fade>
+                <Suspense fallback={<StepFallback />}>
+                  <Fade in={isOnReviewPage}>
+                    <div>
+                      <ReviewPage neighborhoods={communities} />
+                    </div>
+                  </Fade>
+                </Suspense>
               )}
 
               <Stack direction="row" justifyContent="space-between" sx={{ mt: 2 }}>

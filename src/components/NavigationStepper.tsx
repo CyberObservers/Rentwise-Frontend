@@ -7,12 +7,31 @@ type NavigationStepperProps = {
 
 export function NavigationStepper({ activeStep, steps }: NavigationStepperProps) {
   return (
+    <Box
+      sx={(theme) => ({
+        position: 'sticky',
+        top: 0,
+        zIndex: theme.zIndex.appBar - 1,
+      })}
+    >
+      <Box
+        sx={{
+          position: 'absolute',
+          top: 0,
+          left: '-5vw',
+          right: '-5vw',
+          height: { xs: 56, md: 68 },
+          background: 'transparent',
+          backdropFilter: 'blur(16px)',
+          WebkitBackdropFilter: 'blur(16px)',
+          pointerEvents: 'none',
+        }}
+      />
     <Card
       elevation={0}
       sx={(theme) => ({
-        position: 'sticky',
+        position: 'relative',
         top: { xs: 8, md: 12 },
-        zIndex: theme.zIndex.appBar - 1,
         border: `1px solid ${alpha(theme.palette.common.black, 0.12)}`,
         backgroundColor: alpha(theme.palette.background.paper, 0.9),
         backdropFilter: 'blur(8px)',
@@ -98,5 +117,6 @@ export function NavigationStepper({ activeStep, steps }: NavigationStepperProps)
         </Box>
       </CardContent>
     </Card>
+    </Box>
   )
 }

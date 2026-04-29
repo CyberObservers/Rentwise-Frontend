@@ -239,8 +239,7 @@ export const scoreNeighborhood = (neighborhood: Neighborhood, weights: Record<Di
 /**
  * Identifies the top factors driving the recommendation.
  */
-export const getTopDriverDimensions = (weights: Record<Dimension, number>): string[] =>
+export const getTopDriverDimensions = (weights: Record<Dimension, number>): Dimension[] =>
   [...dimensions]
     .sort((a, b) => weights[b] - weights[a])
     .slice(0, 3)
-    .map((dimension) => `${dimension} (${weights[dimension]}%)`)

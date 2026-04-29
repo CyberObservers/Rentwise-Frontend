@@ -20,6 +20,8 @@ import {
   type ChatApiResponse,
   type PreferenceWeights,
 } from '../api'
+import { loadGoogleMapsScript } from '../googleMapsLoader'
+import { dimensionLabels, dimensionStyles } from '../types'
 import type { Dimension, Neighborhood } from '../types'
 
 type ProfileFormProps = {
@@ -51,13 +53,6 @@ const DEFAULT_PREFERENCE_WEIGHTS: PreferenceWeights = {
   environment: 20,
 }
 const PREFERENCE_DIMENSIONS: Dimension[] = ['safety', 'transit', 'convenience', 'parking', 'environment']
-const PREFERENCE_LABELS: Record<Dimension, string> = {
-  safety: 'Safety',
-  transit: 'Transit',
-  convenience: 'Convenience',
-  parking: 'Parking',
-  environment: 'Environment',
-}
 
 const quickPrompts = [
   'Which neighborhoods are best for a budget under $2,000 with easy commuting?',
@@ -296,6 +291,7 @@ export function ProfileForm({
   useEffect(() => { neighborhoodsRef.current = neighborhoods }, [neighborhoods])
   useEffect(() => { recommendationScoresRef.current = recommendationScores }, [recommendationScores])
   const [mapError, setMapError] = useState<string | null>(null)
+  const [isMapReady, setIsMapReady] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
   const [chatInput, setChatInput] = useState('')
   const [localWeights, setLocalWeights] = useState<PreferenceWeights>(DEFAULT_PREFERENCE_WEIGHTS)
@@ -313,6 +309,10 @@ export function ProfileForm({
           .filter((item) => item.center != null)
           .map((item) => [item.name, item.center as { lat: number; lng: number }]),
       ),
+    [neighborhoods],
+  )
+  const neighborhoodByName = useMemo(
+    () => new Map<string, Neighborhood>(neighborhoods.map((item) => [item.name, item])),
     [neighborhoods],
   )
 
@@ -334,6 +334,17 @@ export function ProfileForm({
         recommendationItems.slice(0, 3).map((item) => [item.name, item.rank]),
       ) as Record<string, number>,
     [recommendationItems],
+  )
+  const visibleNeighborhoodNames = useMemo(
+    () =>
+      new Set(
+        [
+          ...availableNeighborhoods.map((item) => item.name),
+          ...Object.keys(recommendationRankByName),
+          selectedNeighborhood,
+        ].filter(Boolean),
+      ),
+    [availableNeighborhoods, recommendationRankByName, selectedNeighborhood],
   )
 
   // Auto-scroll chat to bottom on new messages
@@ -404,134 +415,55 @@ export function ProfileForm({
       return
     }
 
-    const initializeMap = () => {
-      if (!mapContainerRef.current || mapRef.current) return
+    let cancelled = false
 
-      const googleMaps = getGoogleMaps()
-      if (!googleMaps) return
+    const initializeMap = async () => {
+      try {
+        await loadGoogleMapsScript(apiKey)
+        if (cancelled || !mapContainerRef.current) return
 
-      mapRef.current = new googleMaps.Map(mapContainerRef.current, {
-        center: selectedPosition ?? DEFAULT_MAP_CENTER,
-        zoom: mapZoom,
-        mapTypeControl: false,
-        streetViewControl: false,
-        gestureHandling: 'greedy',
-        zoomControl: true,
-      })
+        const googleMaps = getGoogleMaps()
+        if (!googleMaps) return
 
-      mapRef.current.addListener('zoom_changed', () => {
-        const nextZoom = mapRef.current?.getZoom?.()
-        if (typeof nextZoom === 'number') {
-          setMapZoom(nextZoom)
+        if (!mapRef.current) {
+          mapRef.current = new googleMaps.Map(mapContainerRef.current, {
+            center: selectedPosition ?? DEFAULT_MAP_CENTER,
+            zoom: mapZoom,
+            mapTypeControl: false,
+            streetViewControl: false,
+            gestureHandling: 'greedy',
+            zoomControl: true,
+          })
+
+          mapRef.current.addListener('zoom_changed', () => {
+            const nextZoom = mapRef.current?.getZoom?.()
+            if (typeof nextZoom === 'number') {
+              setMapZoom(nextZoom)
+            }
+          })
+
+          infoWindowRef.current = new googleMaps.InfoWindow()
         }
-      })
 
-      infoWindowRef.current = new googleMaps.InfoWindow()
-
-      neighborhoods.forEach((neighborhood) => {
-        const position = neighborhoodCoordinates.get(neighborhood.name)
-        if (!position) return
-
-        const isSelected = neighborhood.name === selectedNeighborhood
-        const recommendationRank = recommendationRankByName[neighborhood.name]
-        const score = recommendationScores[neighborhood.name] ?? 0
-        const markerStyle = getMarkerStyle(score, isSelected, recommendationRank)
-        const circleStyle = getCircleStyle(score, isSelected, recommendationRank)
-        const marker = new googleMaps.Marker({
-          map: mapRef.current,
-          position,
-          title: neighborhood.name,
-          icon: {
-            path: googleMaps.SymbolPath.CIRCLE,
-            fillColor: markerStyle.fillColor,
-            fillOpacity: 1,
-            strokeColor: markerStyle.strokeColor,
-            strokeWeight: markerStyle.strokeWeight,
-            scale: getMarkerScale(isSelected, recommendationRank),
-          },
-          label: getMarkerLabel(recommendationRank, isSelected),
-        })
-
-        const circle = new googleMaps.Circle({
-          map: mapRef.current,
-          center: position,
-          radius: isSelected ? 1200 : 850,
-          fillColor: circleStyle.fillColor,
-          fillOpacity: circleStyle.fillOpacity,
-          strokeColor: circleStyle.strokeColor,
-          strokeOpacity: 0.8,
-          strokeWeight: circleStyle.strokeWeight,
-        })
-
-        marker.addListener('click', () => {
-          setSelectedNeighborhood(neighborhood.name)
-          setCommunityInput(neighborhood.name)
-        })
-
-        marker.addListener('mouseover', () => {
-          const currentNeighborhood =
-            neighborhoodsRef.current.find((item) => item.name === neighborhood.name) ?? neighborhood
-          const safety = currentNeighborhood.objective.safety ?? 0
-          const transit = currentNeighborhood.objective.transit ?? 0
-          const overallScore = recommendationScoresRef.current[neighborhood.name] ?? 0
-          const rent = communityDetailsRef.current[neighborhood.id]?.metrics?.median_rent
-          const rentLine = rent != null
-            ? `<div style="font-size:12px;color:#4b5563">Median Rent: $${Math.round(rent).toLocaleString()}/mo</div>`
-            : ''
-          infoWindowRef.current?.setContent(
-            `<div style="min-width:170px;font-family:Arial,sans-serif">
-              <div style="font-weight:700;margin-bottom:6px">${neighborhood.name}</div>
-              <div style="font-size:12px;color:#4b5563">Recommendation Score: ${overallScore}/100</div>
-              <div style="font-size:12px;color:#4b5563">Transit: ${transit}/100</div>
-              <div style="font-size:12px;color:#4b5563">Safety: ${safety}/100</div>
-              ${rentLine}
-            </div>`,
+        setMapError(null)
+        setIsMapReady(true)
+      } catch (error) {
+        if (!cancelled) {
+          setMapError(
+            error instanceof Error ? error.message : 'Failed to load Google Maps script.',
           )
-          infoWindowRef.current?.open({ anchor: marker, map: mapRef.current })
-        })
-
-        marker.addListener('mouseout', () => {
-          infoWindowRef.current?.close()
-        })
-        markersRef.current[neighborhood.name] = marker
-        circlesRef.current[neighborhood.name] = circle
-      })
+        }
+      }
     }
 
-    const existingScript = document.getElementById('google-maps-script')
-    if (getGoogleMaps()) {
-      initializeMap()
-      return
-    }
-
-    if (!existingScript) {
-      const script = document.createElement('script')
-      script.id = 'google-maps-script'
-      script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}`
-      script.async = true
-      script.defer = true
-      script.onload = initializeMap
-      script.onerror = () => setMapError('Failed to load Google Maps script.')
-      document.head.appendChild(script)
-      return
-    }
-
-    existingScript.addEventListener('load', initializeMap)
+    void initializeMap()
     return () => {
-      existingScript.removeEventListener('load', initializeMap)
+      cancelled = true
     }
   }, [
-    availableNeighborhoods,
     mapZoom,
-    neighborhoodCoordinates,
-    neighborhoods,
-    recommendationRankByName,
-    recommendationScores,
     selectedPosition,
-    selectedNeighborhood,
     setMapZoom,
-    setSelectedNeighborhood,
-    setCommunityInput,
   ])
 
   useEffect(() => {
@@ -563,13 +495,86 @@ export function ProfileForm({
   }, [neighborhoodCoordinates, topRecommendation?.name])
 
   useEffect(() => {
+    if (!isMapReady || !mapRef.current) return
+
     const googleMaps = getGoogleMaps()
     if (!googleMaps) return
 
+    visibleNeighborhoodNames.forEach((name) => {
+      if (markersRef.current[name] && circlesRef.current[name]) return
+
+      const neighborhood = neighborhoodByName.get(name)
+      const position = neighborhoodCoordinates.get(name)
+      if (!neighborhood || !position) return
+
+      const isSelected = name === selectedNeighborhood
+      const recommendationRank = recommendationRankByName[name]
+      const score = recommendationScores[name] ?? 0
+      const markerStyle = getMarkerStyle(score, isSelected, recommendationRank)
+      const circleStyle = getCircleStyle(score, isSelected, recommendationRank)
+      const marker = new googleMaps.Marker({
+        map: mapRef.current,
+        position,
+        title: neighborhood.name,
+        icon: {
+          path: googleMaps.SymbolPath.CIRCLE,
+          fillColor: markerStyle.fillColor,
+          fillOpacity: 1,
+          strokeColor: markerStyle.strokeColor,
+          strokeWeight: markerStyle.strokeWeight,
+          scale: getMarkerScale(isSelected, recommendationRank),
+        },
+        label: getMarkerLabel(recommendationRank, isSelected),
+      })
+
+      const circle = new googleMaps.Circle({
+        map: mapRef.current,
+        center: position,
+        radius: isSelected ? 1200 : 850,
+        fillColor: circleStyle.fillColor,
+        fillOpacity: circleStyle.fillOpacity,
+        strokeColor: circleStyle.strokeColor,
+        strokeOpacity: 0.8,
+        strokeWeight: circleStyle.strokeWeight,
+      })
+
+      marker.addListener('click', () => {
+        setSelectedNeighborhood(neighborhood.name)
+        setCommunityInput(neighborhood.name)
+      })
+
+      marker.addListener('mouseover', () => {
+        const currentNeighborhood =
+          neighborhoodsRef.current.find((item) => item.name === neighborhood.name) ?? neighborhood
+        const safety = currentNeighborhood.objective.safety ?? 0
+        const transit = currentNeighborhood.objective.transit ?? 0
+        const overallScore = recommendationScoresRef.current[neighborhood.name] ?? 0
+        const rent = communityDetailsRef.current[neighborhood.id]?.metrics?.median_rent
+        const rentLine = rent != null
+          ? `<div style="font-size:12px;color:#4b5563">Median Rent: $${Math.round(rent).toLocaleString()}/mo</div>`
+          : ''
+        infoWindowRef.current?.setContent(
+          `<div style="min-width:170px;font-family:Arial,sans-serif">
+            <div style="font-weight:700;margin-bottom:6px">${neighborhood.name}</div>
+            <div style="font-size:12px;color:#4b5563">Recommendation Score: ${overallScore}/100</div>
+            <div style="font-size:12px;color:#4b5563">Transit: ${transit}/100</div>
+            <div style="font-size:12px;color:#4b5563">Safety: ${safety}/100</div>
+            ${rentLine}
+          </div>`,
+        )
+        infoWindowRef.current?.open({ anchor: marker, map: mapRef.current })
+      })
+
+      marker.addListener('mouseout', () => {
+        infoWindowRef.current?.close()
+      })
+
+      markersRef.current[name] = marker
+      circlesRef.current[name] = circle
+    })
+
     Object.entries(markersRef.current).forEach(([name, marker]) => {
-      const isVisible =
-        availableNeighborhoods.some((n) => n.name === name)
-        || recommendationRankByName[name] != null
+      const isVisible = visibleNeighborhoodNames.has(name)
       const isSelected = name === selectedNeighborhood
       const recommendationRank = recommendationRankByName[name]
       const score = recommendationScores[name] ?? 0
@@ -587,9 +592,7 @@ export function ProfileForm({
     })
 
     Object.entries(circlesRef.current).forEach(([name, circle]) => {
-      const isVisible =
-        availableNeighborhoods.some((n) => n.name === name)
-        || recommendationRankByName[name] != null
+      const isVisible = visibleNeighborhoodNames.has(name)
       const isSelected = name === selectedNeighborhood
       const recommendationRank = recommendationRankByName[name]
       const score = recommendationScores[name] ?? 0
@@ -603,7 +606,17 @@ export function ProfileForm({
         strokeWeight: circleStyle.strokeWeight,
       })
     })
-  }, [availableNeighborhoods, recommendationRankByName, recommendationScores, selectedNeighborhood])
+  }, [
+    isMapReady,
+    neighborhoodByName,
+    neighborhoodCoordinates,
+    recommendationRankByName,
+    recommendationScores,
+    selectedNeighborhood,
+    setCommunityInput,
+    setSelectedNeighborhood,
+    visibleNeighborhoodNames,
+  ])
 
   const recommendationSection = (
     <>
@@ -884,13 +897,19 @@ export function ProfileForm({
                         {PREFERENCE_DIMENSIONS.map((key) => {
                           const value = displayWeights[key]
                           const active = Math.abs(value - 20) > 5
+                          const style = dimensionStyles[key]
                           return (
                             <Chip
                               key={key}
-                              label={`${PREFERENCE_LABELS[key]} ${Math.round(value)}%`}
+                              label={`${dimensionLabels[key]} ${Math.round(value)}%`}
                               size="small"
-                              color={active ? 'primary' : 'default'}
-                              variant={active ? 'filled' : 'outlined'}
+                              variant="outlined"
+                              sx={{
+                                fontWeight: 700,
+                                backgroundColor: active ? style.solid : style.soft,
+                                color: active ? style.contrastText : style.text,
+                                borderColor: active ? style.solid : style.border,
+                              }}
                             />
                           )
                         })}
