@@ -241,8 +241,9 @@ function App() {
   }, [communityInsightRequestedIds])
 
   const visibleNeighborhoods = useMemo(() => {
-    if (mapZoom <= 11) return communities.slice(0, 4)
-    if (mapZoom <= 13) return communities.slice(0, 7)
+    if (mapZoom <= 11) return communities.slice(0, 6)
+    if (mapZoom <= 12) return communities.slice(0, 12)
+    if (mapZoom <= 13) return communities.slice(0, 18)
     return communities
   }, [communities, mapZoom])
 
