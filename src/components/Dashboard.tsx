@@ -17,6 +17,7 @@ import {
 import type { ApiCompareResult } from '../api'
 import { dimensionLabels, dimensions, dimensionStyles } from '../types'
 import type { Dimension, Neighborhood } from '../types'
+import { DimensionRadarChart } from './DimensionRadarChart'
 import { WeightEditorCard } from './WeightEditorCard'
 
 type DashboardProps = {
@@ -227,75 +228,115 @@ export function Dashboard({
               </Box>
             </Stack>
 
-            <Box
+            <Stack
+              direction={{ xs: 'column', xl: 'row' }}
+              spacing={2.5}
+              alignItems="center"
               sx={{
-                p: 2,
+                p: { xs: 2, md: 2.5 },
                 borderRadius: 2,
-                border: '1px solid',
-                borderColor: 'divider',
+                border: '1px solid rgba(15, 23, 42, 0.08)',
                 backgroundColor: '#F7F9FC',
               }}
             >
-              <Stack spacing={1.5}>
-                <Typography variant="subtitle2" fontWeight={700}>
-                  Overall score (0-100)
-                </Typography>
-
-                    <Stack spacing={0.5}>
-                      <Stack direction="row" justifyContent="space-between">
-                        <Typography variant="body2" fontWeight={600}>
-                          {leftData.name}
+              <Box sx={{ width: '100%', maxWidth: 380, flex: '0 0 auto' }}>
+                <DimensionRadarChart
+                  datasets={[
+                    {
+                      label: leftData.name,
+                      values: leftData.objective,
+                      color: '#0B5FFF',
+                      fill: '#0B5FFF',
+                    },
+                    {
+                      label: rightData.name,
+                      values: rightData.objective,
+                      color: '#009D77',
+                      fill: '#009D77',
+                    },
+                  ]}
+                  size={360}
+                />
+              </Box>
+              <Box
+                sx={{
+                  flex: 1,
+                  minWidth: 0,
+                  width: '100%',
+                  display: 'grid',
+                  gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)' },
+                  gap: 1.25,
+                }}
+              >
+                <Box
+                  sx={{
+                    border: '1px solid rgba(11, 95, 255, 0.18)',
+                    borderRadius: 2,
+                    backgroundColor: '#F5F8FF',
+                    p: 1.75,
+                  }}
+                >
+                  <Typography variant="body2" color="text.secondary">
+                    {leftData.name}
+                  </Typography>
+                  <Typography variant="h5" sx={{ mt: 0.5, color: '#0B5FFF', fontWeight: 850 }}>
+                    {formatScore(overallLeftScore)}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Weighted match score
+                  </Typography>
+                </Box>
+                <Box
+                  sx={{
+                    border: '1px solid rgba(0, 157, 119, 0.18)',
+                    borderRadius: 2,
+                    backgroundColor: '#F0FAF6',
+                    p: 1.75,
+                  }}
+                >
+                  <Typography variant="body2" color="text.secondary">
+                    {rightData.name}
+                  </Typography>
+                  <Typography variant="h5" sx={{ mt: 0.5, color: '#009D77', fontWeight: 850 }}>
+                    {formatScore(overallRightScore)}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Weighted match score
+                  </Typography>
+                </Box>
+                {statRows.map((row) => (
+                  <Box
+                    key={row.key}
+                    sx={{
+                      border: '1px solid',
+                      borderColor: row.style.border,
+                      borderRadius: 2,
+                      backgroundColor: '#FFFFFF',
+                      p: 1.5,
+                    }}
+                  >
+                    <Stack spacing={0.75}>
+                      <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+                        <Typography variant="body2" fontWeight={850} sx={{ color: row.style.text }}>
+                          {row.label}
                         </Typography>
-                        <Typography variant="body2" fontWeight={700}>
-                          {formatScore(overallLeftScore)}
+                        <Typography variant="caption" color="text.secondary">
+                          Weight {row.weight}%
                         </Typography>
                       </Stack>
-                      <Box
-                        sx={{
-                          height: 10,
-                          borderRadius: 999,
-                          backgroundColor: '#D9DDE5',
-                          overflow: 'hidden',
-                        }}
-                      >
-                        <Box
-                          sx={{
-                            height: '100%',
-                            width: `${overallLeftScore}%`,
-                            backgroundColor: '#0B5FFF',
-                          }}
-                        />
-                      </Box>
-                    </Stack>
-
-                    <Stack spacing={0.5}>
-                      <Stack direction="row" justifyContent="space-between">
-                        <Typography variant="body2" fontWeight={600}>
-                          {rightData.name}
+                      <Stack direction="row" spacing={1.5} justifyContent="space-between">
+                        <Typography variant="caption" color="text.secondary">
+                          A {formatRawValue(row.leftValue)}
                         </Typography>
-                        <Typography variant="body2" fontWeight={700}>
-                          {formatScore(overallRightScore)}
+                        <Typography variant="caption" color="text.secondary">
+                          B {formatRawValue(row.rightValue)}
                         </Typography>
                       </Stack>
-                      <Box
-                        sx={{
-                          height: 10,
-                          borderRadius: 999,
-                          backgroundColor: '#D9DDE5',
-                          overflow: 'hidden',
-                        }}
-                      >
-                        <Box
-                          sx={{
-                            height: '100%',
-                            width: `${overallRightScore}%`,
-                            backgroundColor: '#009D77',
-                          }}
-                        />
-                      </Box>
                     </Stack>
-              </Stack>
-            </Box>
+                  </Box>
+                ))}
+              </Box>
+            </Stack>
 
             {statRows.map((row) => (
               <Stack key={row.key} spacing={0.9}>

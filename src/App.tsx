@@ -16,15 +16,12 @@ import './App.css'
 
 import {
   type ApiCommunityDetail,
-  type ApiCommunityInsight,
   type ApiCompareResult,
-  type ApiMetrics,
   type ApiRecommendationItem,
   type ChatApiResponse,
   buildNeighborhood,
   fetchCommunities,
   fetchCommunityDetail,
-  fetchCommunityInsight,
   postCompare,
   postRecommend,
 } from './api'
@@ -41,8 +38,12 @@ import { loadGoogleMapsScript } from './googleMapsLoader'
 const ConstraintsForm = lazy(async () => ({
   default: (await import('./components/ConstraintsForm')).ConstraintsForm,
 }))
+void ConstraintsForm
 const Dashboard = lazy(async () => ({
   default: (await import('./components/Dashboard')).Dashboard,
+}))
+const CommunityReportPage = lazy(async () => ({
+  default: (await import('./components/CommunityReportPage')).CommunityReportPage,
 }))
 const ReviewPage = lazy(async () => ({
   default: (await import('./components/ReviewPage')).ReviewPage,
@@ -124,7 +125,6 @@ function App() {
   const [activeStep, setActiveStep] = useState(0)
   const [selectedNeighborhood, setSelectedNeighborhood] = useState('')
   const [communityInput, setCommunityInput] = useState('')
-  const [modelPrompt] = useState('')
   const [mapZoom, setMapZoom] = useState(13)
   const [recommendedCommunities, setRecommendedCommunities] = useState<ApiRecommendationItem[]>(
     [],
@@ -139,15 +139,6 @@ function App() {
   const [communityListReloadKey, setCommunityListReloadKey] = useState(0)
 
   const [communityDetails, setCommunityDetails] = useState<Record<string, ApiCommunityDetail>>({})
-  const [communityInsights, setCommunityInsights] = useState<Record<string, ApiCommunityInsight>>(
-    {},
-  )
-  const [, setCommunityInsightRequestedIds] = useState<Set<string>>(
-    new Set(),
-  )
-  const [communityInsightLoadingIds, setCommunityInsightLoadingIds] = useState<Set<string>>(
-    new Set(),
-  )
   const [compareResult, setCompareResult] = useState<ApiCompareResult | null>(null)
   const [compareLoading, setCompareLoading] = useState(false)
   const [compareError, setCompareError] = useState<string | null>(null)
@@ -227,50 +218,6 @@ function App() {
       setCommunities((prev) => replaceNeighborhood(prev, detail))
     } catch (error) {
       console.error('[community] refresh failed', error)
-    }
-  }, [])
-
-  const loadCommunityInsight = useCallback(async (id: string) => {
-    if (!id) return
-
-    let shouldFetch = false
-    setCommunityInsightRequestedIds((prev) => {
-      if (prev.has(id)) return prev
-      shouldFetch = true
-      const next = new Set(prev)
-      next.add(id)
-      return next
-    })
-    if (!shouldFetch) return
-
-    setCommunityInsightLoadingIds((prev) => {
-      const next = new Set(prev)
-      next.add(id)
-      return next
-    })
-
-    let succeeded = false
-
-    try {
-      const insight = await fetchCommunityInsight(id)
-      succeeded = true
-      setCommunityInsights((prev) => ({ ...prev, [id]: insight }))
-    } catch (error) {
-      console.error('[community] insight failed', error)
-    } finally {
-      setCommunityInsightLoadingIds((prev) => {
-        const next = new Set(prev)
-        next.delete(id)
-        return next
-      })
-
-      if (!succeeded) {
-        setCommunityInsightRequestedIds((prev) => {
-          const next = new Set(prev)
-          next.delete(id)
-          return next
-        })
-      }
     }
   }, [])
 
@@ -404,11 +351,6 @@ function App() {
   }, [refreshCommunity, selectedNeighborhoodId])
 
   useEffect(() => {
-    if (activeStep < 1 || !selectedNeighborhoodId) return
-    void loadCommunityInsight(selectedNeighborhoodId)
-  }, [activeStep, loadCommunityInsight, selectedNeighborhoodId])
-
-  useEffect(() => {
     if (activeStep < 2 || !leftNeighborhoodId || !rightNeighborhoodId) return
     void refreshCommunity(leftNeighborhoodId)
     void refreshCommunity(rightNeighborhoodId)
@@ -491,15 +433,6 @@ function App() {
     if (side === 'right') setRightNeighborhood(value)
   }
 
-  const selectedMetrics: ApiMetrics | null =
-    selectedNeighborhoodData ? communityDetails[selectedNeighborhoodData.id]?.metrics ?? null : null
-  const selectedInsight: ApiCommunityInsight | null =
-    selectedNeighborhoodData ? communityInsights[selectedNeighborhoodData.id] ?? null : null
-  const selectedInsightLoading =
-    selectedNeighborhoodData
-      ? communityInsightLoadingIds.has(selectedNeighborhoodData.id)
-      : false
-
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
@@ -560,15 +493,9 @@ function App() {
                 <Suspense fallback={<StepFallback />}>
                   <Fade in={activeStep === 1}>
                     <div>
-                      <ConstraintsForm
+                      <CommunityReportPage
                         selectedNeighborhoodData={selectedNeighborhoodData}
                         weights={weights}
-                        onWeightsChange={handleWeightsChange}
-                        aiSuggestedWeights={llmWeights}
-                        modelPrompt={modelPrompt}
-                        metrics={selectedMetrics}
-                        insight={selectedInsight}
-                        insightLoading={selectedInsightLoading}
                       />
                     </div>
                   </Fade>
