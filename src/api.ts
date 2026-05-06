@@ -145,6 +145,7 @@ export type ApiCommunityReportMetricSnapshot = {
   commute_minutes: number | null
   grocery_density_per_km2: number | null
   crime_rate_per_100k: number | null
+  rent_trend_12m_pct: number | null
   noise_avg_db: number | null
   night_activity_index: number | null
   parking_lot_density_per_km2: number | null

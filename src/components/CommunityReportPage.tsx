@@ -13,6 +13,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   type ApiAgentTraceStep,
   type ApiCommunityReport,
+  type ApiCommunityReportMetricSnapshot,
+  type ApiCommunityReportReview,
   postCommunityReport,
 } from '../api'
 import { loadGoogleMapsScript } from '../googleMapsLoader'
@@ -36,6 +38,18 @@ const sectionOrder = [
 
 const REPORT_REQUEST_DEBOUNCE_MS = 700
 
+const coreCoverageMetrics: {
+  key: keyof ApiCommunityReportMetricSnapshot
+  label: string
+}[] = [
+  { key: 'median_rent', label: 'Median rent' },
+  { key: 'grocery_density_per_km2', label: 'Grocery access' },
+  { key: 'crime_rate_per_100k', label: 'Crime rate' },
+  { key: 'rent_trend_12m_pct', label: '12-month rent trend' },
+  { key: 'night_activity_index', label: 'Night activity' },
+  { key: 'noise_avg_db', label: 'Noise level' },
+]
+
 function formatStepLabel(value: string): string {
   return value
     .split('_')
@@ -50,10 +64,15 @@ function traceColor(status: ApiAgentTraceStep['status']) {
   return 'warning'
 }
 
-function formatConfidence(value: number | null): string {
-  if (value == null) return 'N/A'
-  const normalized = value <= 1 ? value * 100 : value
-  return `${Math.round(normalized)}%`
+function formatDataCoverage(availableCount: number, totalCount: number): string {
+  if (totalCount === 0) return 'N/A'
+  return `${Math.round((availableCount / totalCount) * 100)}%`
+}
+
+function getCoreMetricCoverage(metrics: ApiCommunityReportMetricSnapshot) {
+  const available = coreCoverageMetrics.filter((item) => metrics[item.key] != null)
+  const missing = coreCoverageMetrics.filter((item) => metrics[item.key] == null)
+  return { available, missing, total: coreCoverageMetrics.length }
 }
 
 function sectionAccent(type: string): string {
@@ -148,6 +167,48 @@ function parseReviewItem(input: string): ParsedReviewItem | null {
     linkLabel: linked.label,
     url: linked.url,
   }
+}
+
+function normalizeReviewText(input: string | null | undefined): string {
+  return (input ?? '')
+    .toLowerCase()
+    .replace(/^@/, '')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function parseAuthorReviewItem(input: string): { author: string; body: string } | null {
+  const match = input.match(/^@?([^:]+):\s*["“]?(.+?)["”]?\.?$/)
+  if (!match) return null
+
+  return {
+    author: match[1].trim(),
+    body: match[2].trim(),
+  }
+}
+
+function findReviewSourceUrl(
+  item: string,
+  reviews: ApiCommunityReportReview[],
+): string | null {
+  const parsed = parseAuthorReviewItem(item)
+  const itemBody = normalizeReviewText(parsed?.body ?? item)
+  const itemAuthor = normalizeReviewText(parsed?.author)
+
+  const matchedByAuthor = reviews.find((review) => {
+    if (!review.source_url) return false
+    if (!itemAuthor) return false
+    return normalizeReviewText(review.author_name) === itemAuthor
+  })
+  if (matchedByAuthor?.source_url) return matchedByAuthor.source_url
+
+  const matchedByBody = reviews.find((review) => {
+    if (!review.source_url || !itemBody) return false
+    const reviewBody = normalizeReviewText(review.body_text)
+    return reviewBody.includes(itemBody) || itemBody.includes(reviewBody)
+  })
+  return matchedByBody?.source_url ?? null
 }
 
 function isSourceLikeSection(type: string, title: string): boolean {
@@ -360,6 +421,11 @@ export function CommunityReportPage({
       (report?.dimensions ?? []).map((item) => [item.dimension, item.summary]),
     ) as Partial<Record<Dimension, string | null>>
   }, [report?.dimensions])
+
+  const coreMetricCoverage = useMemo(() => {
+    if (!report) return null
+    return getCoreMetricCoverage(report.metrics)
+  }, [report])
 
   return (
     <Stack spacing={3.5}>
@@ -587,12 +653,37 @@ export function CommunityReportPage({
                   </Typography>
                   <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                     <Chip
-                      label={`Confidence: ${formatConfidence(report.metrics.overall_confidence)}`}
+                      label={`Data coverage: ${coreMetricCoverage
+                        ? formatDataCoverage(coreMetricCoverage.available.length, coreMetricCoverage.total)
+                        : 'N/A'}`}
                       color="primary"
                       variant="outlined"
                       sx={{ fontWeight: 800, backgroundColor: '#F5F8FF' }}
                     />
+                    <Typography
+                      variant="caption"
+                      color="text.secondary"
+                      sx={{ alignSelf: 'center', lineHeight: 1.5 }}
+                    >
+                      Share of core metrics currently available, not prediction certainty.
+                    </Typography>
                   </Stack>
+                  {coreMetricCoverage && (
+                    <Stack spacing={0.4}>
+                      <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.55 }}>
+                        Available core metrics:{' '}
+                        {coreMetricCoverage.available.length
+                          ? coreMetricCoverage.available.map((item) => item.label).join(', ')
+                          : 'None'}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.55 }}>
+                        Missing core metrics:{' '}
+                        {coreMetricCoverage.missing.length
+                          ? coreMetricCoverage.missing.map((item) => item.label).join(', ')
+                          : 'None'}
+                      </Typography>
+                    </Stack>
+                  )}
                 </Stack>
                 <Box sx={{ width: { xs: '100%', lg: 420 }, flexShrink: 0 }}>
                   <CommunityLocationMap
@@ -703,8 +794,12 @@ export function CommunityReportPage({
                               const parsedReview = parseReviewItem(item)
                               const linkedItem = parseMarkdownLink(item)
                               const itemText = parsedReview?.body ?? linkedItem?.text ?? item
-                              const itemUrl = parsedReview?.url ?? linkedItem?.url ?? null
-                              const itemLinkLabel = parsedReview?.linkLabel ?? linkedItem?.label ?? 'Open source'
+                              const itemUrl = parsedReview?.url
+                                ?? linkedItem?.url
+                                ?? findReviewSourceUrl(item, report.reviews)
+                              const itemLinkLabel = parsedReview?.linkLabel
+                                ?? linkedItem?.label
+                                ?? 'Open review'
 
                               return (
                                 <Stack
