@@ -9,12 +9,13 @@ import {
   Stack,
   Typography,
 } from '@mui/material'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   type ApiAgentTraceStep,
   type ApiCommunityReport,
   postCommunityReport,
 } from '../api'
+import { loadGoogleMapsScript } from '../googleMapsLoader'
 import type { Dimension, Neighborhood } from '../types'
 import { dimensionLabels, dimensions, dimensionStyles } from '../types'
 import { DimensionRadarChart } from './DimensionRadarChart'
@@ -47,10 +48,10 @@ function traceColor(status: ApiAgentTraceStep['status']) {
   return 'warning'
 }
 
-function formatMetric(value: number | null): string {
+function formatConfidence(value: number | null): string {
   if (value == null) return 'N/A'
-  if (Math.abs(value) >= 100) return Math.round(value).toLocaleString()
-  return value.toFixed(2).replace(/\.00$/, '')
+  const normalized = value <= 1 ? value * 100 : value
+  return `${Math.round(normalized)}%`
 }
 
 function sectionAccent(type: string): string {
@@ -76,6 +77,48 @@ type ParsedReviewItem = {
   body: string
   linkLabel: string
   url: string
+}
+
+type ReportMapPosition = {
+  lat: number
+  lng: number
+}
+
+type ReportMapLike = {
+  setCenter: (position: ReportMapPosition) => void
+  setZoom: (zoom: number) => void
+}
+
+type ReportMarkerLike = {
+  setMap: (map: ReportMapLike | null) => void
+  setPosition: (position: ReportMapPosition) => void
+}
+
+type ReportGoogleMapsApi = {
+  Map: new (container: HTMLDivElement, options: {
+    center: ReportMapPosition
+    zoom: number
+    mapTypeControl: boolean
+    streetViewControl: boolean
+    gestureHandling: string
+    zoomControl: boolean
+  }) => ReportMapLike
+  Marker: new (options: {
+    map: ReportMapLike | null
+    position: ReportMapPosition
+    title: string
+    icon: {
+      path: unknown
+      fillColor: string
+      fillOpacity: number
+      strokeColor: string
+      strokeWeight: number
+      scale: number
+    }
+  }) => ReportMarkerLike
+  SymbolPath: {
+    CIRCLE: unknown
+  }
 }
 
 function parseMarkdownLink(input: string): { text: string; label: string; url: string } | null {
@@ -108,6 +151,136 @@ function parseReviewItem(input: string): ParsedReviewItem | null {
 function isSourceLikeSection(type: string, title: string): boolean {
   const normalizedTitle = title.toLowerCase()
   return type === 'sources' || normalizedTitle.includes('review') || normalizedTitle.includes('source')
+}
+
+function getReportGoogleMaps(): ReportGoogleMapsApi | undefined {
+  return (window as Window & { google?: { maps?: ReportGoogleMapsApi } }).google?.maps
+}
+
+function CommunityLocationMap({
+  lat,
+  lng,
+  name,
+}: {
+  lat: number | null
+  lng: number | null
+  name: string
+}) {
+  const mapContainerRef = useRef<HTMLDivElement | null>(null)
+  const mapRef = useRef<ReportMapLike | null>(null)
+  const markerRef = useRef<ReportMarkerLike | null>(null)
+  const [mapError, setMapError] = useState<string | null>(null)
+
+  const position = useMemo<ReportMapPosition | null>(() => {
+    if (lat == null || lng == null) return null
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
+    return { lat, lng }
+  }, [lat, lng])
+
+  useEffect(() => {
+    if (!position) return
+
+    const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY
+    if (!apiKey) {
+      setMapError('Google Maps API key is missing.')
+      return
+    }
+
+    let cancelled = false
+
+    const initializeMap = async () => {
+      try {
+        await loadGoogleMapsScript(apiKey)
+        if (cancelled || !mapContainerRef.current) return
+
+        const googleMaps = getReportGoogleMaps()
+        if (!googleMaps) return
+
+        if (!mapRef.current) {
+          mapRef.current = new googleMaps.Map(mapContainerRef.current, {
+            center: position,
+            zoom: 14,
+            mapTypeControl: false,
+            streetViewControl: false,
+            gestureHandling: 'cooperative',
+            zoomControl: true,
+          })
+        } else {
+          mapRef.current.setCenter(position)
+          mapRef.current.setZoom(14)
+        }
+
+        if (!markerRef.current) {
+          markerRef.current = new googleMaps.Marker({
+            map: mapRef.current,
+            position,
+            title: name,
+            icon: {
+              path: googleMaps.SymbolPath.CIRCLE,
+              fillColor: '#0B5FFF',
+              fillOpacity: 1,
+              strokeColor: '#FFFFFF',
+              strokeWeight: 3,
+              scale: 9,
+            },
+          })
+        } else {
+          markerRef.current.setMap(mapRef.current)
+          markerRef.current.setPosition(position)
+        }
+
+        setMapError(null)
+      } catch (error) {
+        if (!cancelled) {
+          setMapError(error instanceof Error ? error.message : 'Failed to load Google Maps.')
+        }
+      }
+    }
+
+    void initializeMap()
+
+    return () => {
+      cancelled = true
+    }
+  }, [name, position])
+
+  if (!position) {
+    return (
+      <Box
+        sx={{
+          minHeight: 220,
+          border: '1px solid rgba(15, 23, 42, 0.08)',
+          borderRadius: 2,
+          backgroundColor: '#F8FAFC',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          px: 2,
+        }}
+      >
+        <Typography color="text.secondary" variant="body2">
+          Location unavailable
+        </Typography>
+      </Box>
+    )
+  }
+
+  return (
+    <Stack spacing={1}>
+      {mapError && <Alert severity="warning">{mapError}</Alert>}
+      <Box
+        ref={mapContainerRef}
+        sx={{
+          width: '100%',
+          minHeight: { xs: 220, md: 240 },
+          border: '1px solid rgba(15, 23, 42, 0.08)',
+          borderRadius: 2,
+          backgroundColor: '#F8FAFC',
+          overflow: 'hidden',
+        }}
+      />
+    </Stack>
+  )
 }
 
 export function CommunityReportPage({
@@ -392,23 +565,34 @@ export function CommunityReportPage({
             }}
           >
             <CardContent sx={{ p: { xs: 2.25, md: 3 } }}>
-              <Stack spacing={2.2}>
-                <Typography variant="h5" sx={{ fontWeight: 850, color: '#101828' }}>
-                  {report.title}
-                </Typography>
-                <Typography color="text.secondary" sx={{ lineHeight: 1.75, maxWidth: 980 }}>
-                  {report.summary}
-                </Typography>
-                <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                  <Chip label={`Lat ${formatMetric(report.location.center_lat)}`} sx={{ backgroundColor: '#F2F4F7' }} />
-                  <Chip label={`Lng ${formatMetric(report.location.center_lng)}`} sx={{ backgroundColor: '#F2F4F7' }} />
-                  <Chip
-                    label={`Confidence ${formatMetric(report.metrics.overall_confidence)}`}
-                    color="primary"
-                    variant="outlined"
-                    sx={{ fontWeight: 800, backgroundColor: '#F5F8FF' }}
-                  />
+              <Stack
+                direction={{ xs: 'column', lg: 'row' }}
+                spacing={{ xs: 2.25, lg: 3 }}
+                alignItems="stretch"
+              >
+                <Stack spacing={2.2} sx={{ flex: 1, minWidth: 0 }}>
+                  <Typography variant="h5" sx={{ fontWeight: 850, color: '#101828' }}>
+                    {report.title}
+                  </Typography>
+                  <Typography color="text.secondary" sx={{ lineHeight: 1.75, maxWidth: 980 }}>
+                    {report.summary}
+                  </Typography>
+                  <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                    <Chip
+                      label={`Confidence: ${formatConfidence(report.metrics.overall_confidence)}`}
+                      color="primary"
+                      variant="outlined"
+                      sx={{ fontWeight: 800, backgroundColor: '#F5F8FF' }}
+                    />
+                  </Stack>
                 </Stack>
+                <Box sx={{ width: { xs: '100%', lg: 420 }, flexShrink: 0 }}>
+                  <CommunityLocationMap
+                    lat={report.location.center_lat}
+                    lng={report.location.center_lng}
+                    name={report.location.name}
+                  />
+                </Box>
               </Stack>
             </CardContent>
           </Card>

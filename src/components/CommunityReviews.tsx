@@ -1,6 +1,7 @@
 import {
   Avatar,
   Box,
+  Button,
   Card,
   CardContent,
   CardHeader,
@@ -26,6 +27,10 @@ type Review = {
   like_count?: number
   parent_id?: string
   external_id?: string
+  source_url?: string | null
+  url?: string | null
+  permalink?: string | null
+  comment_url?: string | null
 }
 
 type CommunityReviewsProps = {
@@ -839,8 +844,14 @@ function HighlightedCommentText({ text, term }: { text: string, term: string | n
   )
 }
 
+function getReviewUrl(review: Review): string | null {
+  return review.source_url ?? review.comment_url ?? review.permalink ?? review.url ?? null
+}
+
 function ReviewCard({ review, isReply, highlightedTerm }: { review: Review, isReply: boolean, highlightedTerm: string | null }) {
   const theme = useTheme()
+  const reviewUrl = getReviewUrl(review)
+
   return (
     <Card
       elevation={0}
@@ -881,6 +892,21 @@ function ReviewCard({ review, isReply, highlightedTerm }: { review: Review, isRe
               </Typography>
             )}
           </Stack>
+        }
+        action={
+          reviewUrl ? (
+            <Button
+              component="a"
+              href={reviewUrl}
+              target="_blank"
+              rel="noreferrer"
+              size="small"
+              variant="text"
+              sx={{ mt: 0.25, mr: 0.5, textTransform: 'none', whiteSpace: 'nowrap' }}
+            >
+              Open comment
+            </Button>
+          ) : undefined
         }
       />
       <CardContent sx={{ pt: 0, pb: '16px !important' }}>
