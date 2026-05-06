@@ -46,6 +46,24 @@ VITE_GOOGLE_MAPS_API_KEY=your_google_maps_browser_key
 
 The frontend expects the [Rentwise-Backend](../Rentwise-Backend) to be running. Community data, recommendations, comparison summaries, and reviews are all loaded from backend APIs.
 
+## Run With Docker
+
+### 1) Frontend only: build and start container
+
+```bash
+docker compose -f docker-compose.frontend.yml up --build
+```
+
+### 2) Open in browser
+
+`http://127.0.0.1:5173`
+
+### 3) Frontend only: stop container
+
+```bash
+docker compose -f docker-compose.frontend.yml down
+```
+
 ## NPM Registry Troubleshooting
 
 If `npm ci` errors with `ENOTFOUND mirrors.cloud.tencent.com` or similar, your registry is set to an unreachable mirror:
