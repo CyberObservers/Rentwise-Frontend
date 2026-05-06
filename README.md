@@ -37,11 +37,12 @@ npm run lint          # ESLint
 Create a `.env` (or `.env.local`) in this directory:
 
 ```env
-VITE_API_BASE_URL=http://localhost:8000
+# Optional. Omit in local Vite dev to use the built-in /api proxy.
+VITE_API_BASE_URL=/api
 VITE_GOOGLE_MAPS_API_KEY=your_google_maps_browser_key
 ```
 
-- `VITE_API_BASE_URL` — backend base URL. If omitted, the app falls back to `http://localhost:8000`.
+- `VITE_API_BASE_URL` — backend base URL. If omitted, the app uses `/api`, which Vite proxies to the backend during local development.
 - `VITE_GOOGLE_MAPS_API_KEY` — required for the interactive map in Step 1. Without it the map area shows an error banner.
 
 The frontend expects the [Rentwise-Backend](../Rentwise-Backend) to be running. Community data, recommendations, comparison summaries, and reviews are all loaded from backend APIs.

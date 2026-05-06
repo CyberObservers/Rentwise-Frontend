@@ -16,7 +16,7 @@ import {
 } from '@mui/material'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import cloud from 'd3-cloud'
-import { fetchReviewKeywordConfig, type ApiReviewKeywordConfig } from '../api'
+import { API_BASE, fetchReviewKeywordConfig, type ApiReviewKeywordConfig } from '../api'
 
 type Review = {
   post_id: string
@@ -62,6 +62,8 @@ type CloudLayoutWord = {
 const ITEMS_PER_PAGE = 5
 const MAX_WORDS = 36
 const MIN_CLOUD_WORDS = 14
+const MAX_WORD_CLOUD_REVIEWS = 80
+const REVIEWS_REQUEST_TIMEOUT_MS = 20_000
 const DEFAULT_STOP_WORDS = [
   'about', 'after', 'again', 'almost', 'also', 'always', 'am', 'an', 'and', 'any', 'are', 'as',
   'at', 'be', 'because', 'been', 'before', 'being', 'between', 'both', 'but', 'by', 'can',
@@ -391,6 +393,10 @@ export function CommunityReviews({ communityId }: CommunityReviewsProps) {
     () => allThreads.flatMap((thread) => [thread.parent, ...thread.replies]),
     [allThreads],
   )
+  const wordCloudReviews = useMemo(
+    () => allReviews.slice(0, MAX_WORD_CLOUD_REVIEWS),
+    [allReviews],
+  )
   const filteredThreads = useMemo(() => {
     if (!selectedTerm) return displayedThreads
     return allThreads.filter((thread) => threadContainsTerm(thread, selectedTerm))
@@ -417,8 +423,15 @@ export function CommunityReviews({ communityId }: CommunityReviewsProps) {
   // Fetch all reviews initially (client-side pagination)
   useEffect(() => {
     if (!communityId) return
+    const controller = new AbortController()
+    let ignore = false
 
     const fetchReviews = async () => {
+      const timer = window.setTimeout(
+        () => controller.abort(new DOMException('Reviews request timed out', 'TimeoutError')),
+        REVIEWS_REQUEST_TIMEOUT_MS,
+      )
+
       try {
         setLoading(true)
         setError(null)
@@ -427,28 +440,40 @@ export function CommunityReviews({ communityId }: CommunityReviewsProps) {
         setPage(1)
         setDisplayedThreads([])
 
-        const apiBase = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
         const aiFilterQuery = useAiFilter ? '?ai_filter=true' : ''
-        const response = await fetch(`${apiBase}/communities/${communityId}/reviews${aiFilterQuery}`)
+        const response = await fetch(
+          `${API_BASE}/communities/${communityId}/reviews${aiFilterQuery}`,
+          { signal: controller.signal },
+        )
 
         if (!response.ok) {
           throw new Error('Failed to fetch reviews')
         }
 
         const data: Review[] = await response.json()
+        if (ignore) return
+
         const sortedThreads = organizeThreads(uniqueByPostId(data))
         setAllThreads(sortedThreads)
         setDisplayedThreads(sortedThreads.slice(0, ITEMS_PER_PAGE))
       } catch (err: unknown) {
+        if (ignore || controller.signal.aborted) return
+
         console.error(err)
         const message = err instanceof Error ? err.message : 'Error loading reviews'
         setError(message)
       } finally {
-        setLoading(false)
+        window.clearTimeout(timer)
+        if (!ignore) setLoading(false)
       }
     }
 
     fetchReviews()
+
+    return () => {
+      ignore = true
+      controller.abort()
+    }
   }, [communityId, useAiFilter])
 
   // Handle loading more items
@@ -572,7 +597,7 @@ export function CommunityReviews({ communityId }: CommunityReviewsProps) {
       {reviewControls}
 
       <ReviewWordCloud
-        reviews={allReviews}
+        reviews={wordCloudReviews}
         threads={allThreads}
         keywordConfig={normalizedKeywordConfig}
         selectedTerm={selectedTerm}

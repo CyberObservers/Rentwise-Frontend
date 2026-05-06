@@ -1,6 +1,6 @@
 import type { Dimension, Neighborhood } from './types'
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
+export const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api'
 
 // ── TypeScript types mirroring backend Pydantic schemas ──────────────────────
 
@@ -419,20 +419,40 @@ export async function postCompare(
 export async function postCommunityReport(
   communityId: string,
   userPreferences: Record<string, number>,
+  signal?: AbortSignal,
 ): Promise<ApiCommunityReport> {
-  const res = await fetch(`${API_BASE}/agent/community-report`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      community_id: communityId,
-      user_preferences: userPreferences,
-    }),
-  })
+  const controller = new AbortController()
+  const timer = setTimeout(
+    () => controller.abort(new DOMException('Community report request timed out', 'TimeoutError')),
+    45_000,
+  )
+  const abortHandler = () => controller.abort(signal?.reason)
 
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(`Community report failed: ${res.status}${text ? ` ${text}` : ''}`)
+  try {
+    if (signal?.aborted) {
+      controller.abort(signal.reason)
+    } else {
+      signal?.addEventListener('abort', abortHandler, { once: true })
+    }
+
+    const res = await fetch(`${API_BASE}/agent/community-report`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        community_id: communityId,
+        user_preferences: userPreferences,
+      }),
+      signal: controller.signal,
+    })
+
+    if (!res.ok) {
+      const text = await res.text()
+      throw new Error(`Community report failed: ${res.status}${text ? ` ${text}` : ''}`)
+    }
+
+    return await res.json() as ApiCommunityReport
+  } finally {
+    clearTimeout(timer)
+    signal?.removeEventListener('abort', abortHandler)
   }
-
-  return res.json() as Promise<ApiCommunityReport>
 }

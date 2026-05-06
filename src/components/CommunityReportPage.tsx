@@ -34,6 +34,8 @@ const sectionOrder = [
   'sources',
 ]
 
+const REPORT_REQUEST_DEBOUNCE_MS = 700
+
 function formatStepLabel(value: string): string {
   return value
     .split('_')
@@ -303,26 +305,32 @@ export function CommunityReportPage({
   )
 
   useEffect(() => {
+    const controller = new AbortController()
     let cancelled = false
-    setLoading(true)
-    setError(null)
 
-    postCommunityReport(selectedNeighborhoodData.id, weights)
-      .then((nextReport) => {
-        if (!cancelled) setReport(nextReport)
-      })
-      .catch((err) => {
-        if (!cancelled) {
+    const timer = window.setTimeout(() => {
+      setLoading(true)
+      setError(null)
+
+      postCommunityReport(selectedNeighborhoodData.id, weights, controller.signal)
+        .then((nextReport) => {
+          if (!cancelled) setReport(nextReport)
+        })
+        .catch((err) => {
+          if (cancelled || controller.signal.aborted) return
+
           setReport(null)
           setError(err instanceof Error ? err.message : 'Unable to load report.')
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false)
+        })
+    }, REPORT_REQUEST_DEBOUNCE_MS)
 
     return () => {
       cancelled = true
+      window.clearTimeout(timer)
+      controller.abort()
     }
   }, [selectedNeighborhoodData.id, weights])
 
