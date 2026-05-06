@@ -6,13 +6,16 @@ import {
   CardHeader,
   Chip,
   CircularProgress,
+  FormControlLabel,
   Stack,
+  Switch,
   Typography,
   alpha,
   useTheme,
 } from '@mui/material'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import cloud from 'd3-cloud'
+import { fetchReviewKeywordConfig, type ApiReviewKeywordConfig } from '../api'
 
 type Review = {
   post_id: string
@@ -54,7 +57,7 @@ type CloudLayoutWord = {
 const ITEMS_PER_PAGE = 5
 const MAX_WORDS = 36
 const MIN_CLOUD_WORDS = 14
-const STOP_WORDS = new Set([
+const DEFAULT_STOP_WORDS = [
   'about', 'after', 'again', 'almost', 'also', 'always', 'am', 'an', 'and', 'any', 'are', 'as',
   'at', 'be', 'because', 'been', 'before', 'being', 'between', 'both', 'but', 'by', 'can',
   'could', 'did', 'do', 'does', 'doing', 'done', 'down', 'during', 'each', 'few', 'for', 'from',
@@ -70,11 +73,11 @@ const STOP_WORDS = new Set([
   'del',
   // low-signal platform words
   'youtube', 'video', 'comment', 'comments', 'channel', 'subscribe', 'watch',
-])
+]
 
 const SHORT_WORD_WHITELIST = new Set(['ac', 'hvac', 'hoa', 'gym', 'bus', 'laundry'])
 
-const RENTAL_PHRASES = [
+const DEFAULT_RENTAL_PHRASES = [
   'pet friendly',
   'in unit laundry',
   'washer dryer',
@@ -97,7 +100,7 @@ const RENTAL_PHRASES = [
   'move in',
 ]
 
-const LOCATION_PHRASES = [
+const DEFAULT_LOCATION_PHRASES = [
   'camino del sol',
   'vista del campo',
   'vista del campo norte',
@@ -107,25 +110,55 @@ const LOCATION_PHRASES = [
   'costa mesa border',
 ]
 
-const RENTAL_SIGNAL_TERMS = new Set([
+const DEFAULT_RENTAL_SIGNAL_WORDS = [
   'rent', 'rental', 'apartment', 'apartments', 'housing', 'lease', 'sublease', 'deposit', 'utility',
   'utilities', 'room', 'roommate', 'roommates', 'shared', 'parking', 'garage', 'street', 'commute',
   'transit', 'bus', 'walkable', 'quiet', 'noise', 'safe', 'safety', 'management', 'maintenance',
   'landlord', 'campus', 'dorm', 'dorms', 'acc', 'utc', 'camino', 'vista', 'arroyo',
-])
+]
 
-const NON_RENTAL_TERMS = new Set([
+const DEFAULT_NON_RENTAL_TERMS = [
   'accepted', 'acceptance', 'admitted', 'admission', 'waitlisted', 'committed', 'ucla', 'berkeley',
   'stats', 'program', 'drama', 'entertainment', 'video', 'sound', 'freshman', 'research',
-])
+]
 
-const EXCLUDED_NOISE_TOKENS = new Set([
+const DEFAULT_EXCLUDED_NOISE_TOKENS = [
   'accepted', 'waitlisted', 'committed', 'ucla', 'berkeley', 'stats', 'program', 'video', 'sound',
   'funny', 'entertainment', 'freshman', 'omg', 'pls',
   // low-value generic words that drown rental signals
   'area', 'live', 'far', 'sure', 'pretty', 'options', 'guys', 'help', 'today', 'anymore',
   'thanks', 'thank', 'really', 'actually', 'going', 'whole', 'give', 'giving', 'got',
-])
+]
+
+const DEFAULT_KEYWORD_CONFIG: ApiReviewKeywordConfig = {
+  version: 'frontend-fallback',
+  stop_words: DEFAULT_STOP_WORDS,
+  noise_words: [...DEFAULT_NON_RENTAL_TERMS, ...DEFAULT_EXCLUDED_NOISE_TOKENS],
+  rental_signal_words: DEFAULT_RENTAL_SIGNAL_WORDS,
+  phrases: [...DEFAULT_LOCATION_PHRASES, ...DEFAULT_RENTAL_PHRASES],
+}
+
+type NormalizedKeywordConfig = {
+  version: string
+  stopWords: Set<string>
+  noiseWords: Set<string>
+  rentalSignalWords: Set<string>
+  phrases: string[]
+}
+
+function normalizeKeywordList(values: string[]): string[] {
+  return [...new Set(values.map((value) => normalizeReviewText(value)).filter(Boolean))]
+}
+
+function normalizeKeywordConfig(config: ApiReviewKeywordConfig): NormalizedKeywordConfig {
+  return {
+    version: config.version,
+    stopWords: new Set(normalizeKeywordList(config.stop_words)),
+    noiseWords: new Set(normalizeKeywordList(config.noise_words)),
+    rentalSignalWords: new Set(normalizeKeywordList(config.rental_signal_words)),
+    phrases: normalizeKeywordList(config.phrases),
+  }
+}
 
 function normalizeReviewText(input: string): string {
   return input
@@ -138,7 +171,10 @@ function normalizeReviewText(input: string): string {
     .trim()
 }
 
-function getReviewRelevanceMultiplier(normalized: string): number {
+function getReviewRelevanceMultiplier(
+  normalized: string,
+  keywordConfig: NormalizedKeywordConfig,
+): number {
   const words = normalized.match(/[a-z][a-z'-]{1,24}/g) ?? []
   if (words.length === 0) return 0
 
@@ -147,11 +183,11 @@ function getReviewRelevanceMultiplier(normalized: string): number {
   let noiseHits = 0
 
   uniqueWords.forEach((word) => {
-    if (RENTAL_SIGNAL_TERMS.has(word)) rentalHits += 1
-    if (NON_RENTAL_TERMS.has(word)) noiseHits += 1
+    if (keywordConfig.rentalSignalWords.has(word)) rentalHits += 1
+    if (keywordConfig.noiseWords.has(word)) noiseHits += 1
   })
 
-  RENTAL_PHRASES.forEach((phrase) => {
+  keywordConfig.phrases.forEach((phrase) => {
     if (normalized.includes(phrase)) rentalHits += 2
   })
 
@@ -161,7 +197,10 @@ function getReviewRelevanceMultiplier(normalized: string): number {
   return 1 + Math.min(rentalHits, 6) * 0.08
 }
 
-function extractWordCloudEntries(reviews: Review[]): WordCloudEntry[] {
+function extractWordCloudEntries(
+  reviews: Review[],
+  keywordConfig: NormalizedKeywordConfig,
+): WordCloudEntry[] {
   const scoreByTerm = new Map<string, number>()
   const mentionsByTerm = new Map<string, number>()
 
@@ -169,17 +208,17 @@ function extractWordCloudEntries(reviews: Review[]): WordCloudEntry[] {
     const normalized = normalizeReviewText(review.body_text)
     if (!normalized) return
 
-    const relevance = getReviewRelevanceMultiplier(normalized)
+    const relevance = getReviewRelevanceMultiplier(normalized, keywordConfig)
     if (relevance === 0) return
 
     const reviewWeight = (1 + Math.min(Math.max(review.like_count ?? 0, 0), 20) / 20) * relevance
     const seenThisReview = new Set<string>()
     const blockedTokensInReview = new Set<string>()
 
-    LOCATION_PHRASES.forEach((phrase) => {
+    keywordConfig.phrases.forEach((phrase) => {
       if (normalized.includes(phrase) && !seenThisReview.has(phrase)) {
         seenThisReview.add(phrase)
-        scoreByTerm.set(phrase, (scoreByTerm.get(phrase) ?? 0) + reviewWeight * 2.2)
+        scoreByTerm.set(phrase, (scoreByTerm.get(phrase) ?? 0) + reviewWeight * 1.8)
         mentionsByTerm.set(phrase, (mentionsByTerm.get(phrase) ?? 0) + 1)
 
         phrase.split(' ').forEach((part) => {
@@ -193,8 +232,8 @@ function extractWordCloudEntries(reviews: Review[]): WordCloudEntry[] {
       const token = tokenRaw.replace(/(^'+|'+$)/g, '')
       if (!token) return
       if (token.length < 3 && !SHORT_WORD_WHITELIST.has(token)) return
-      if (STOP_WORDS.has(token)) return
-      if (EXCLUDED_NOISE_TOKENS.has(token)) return
+      if (keywordConfig.stopWords.has(token)) return
+      if (keywordConfig.noiseWords.has(token)) return
       if (blockedTokensInReview.has(token)) return
       if (/^\d+$/.test(token)) return
       if (seenThisReview.has(token)) return
@@ -202,14 +241,6 @@ function extractWordCloudEntries(reviews: Review[]): WordCloudEntry[] {
       seenThisReview.add(token)
       scoreByTerm.set(token, (scoreByTerm.get(token) ?? 0) + reviewWeight)
       mentionsByTerm.set(token, (mentionsByTerm.get(token) ?? 0) + 1)
-    })
-
-    RENTAL_PHRASES.forEach((phrase) => {
-      if (normalized.includes(phrase) && !seenThisReview.has(phrase)) {
-        seenThisReview.add(phrase)
-        scoreByTerm.set(phrase, (scoreByTerm.get(phrase) ?? 0) + reviewWeight * 1.8)
-        mentionsByTerm.set(phrase, (mentionsByTerm.get(phrase) ?? 0) + 1)
-      }
     })
   })
 
@@ -343,8 +374,14 @@ export function CommunityReviews({ communityId }: CommunityReviewsProps) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [page, setPage] = useState(1)
+  const [useAiFilter, setUseAiFilter] = useState(false)
+  const [keywordConfig, setKeywordConfig] = useState<ApiReviewKeywordConfig>(DEFAULT_KEYWORD_CONFIG)
   const observerTarget = useRef<HTMLDivElement | null>(null)
   const theme = useTheme()
+  const normalizedKeywordConfig = useMemo(
+    () => normalizeKeywordConfig(keywordConfig),
+    [keywordConfig],
+  )
   const allReviews = useMemo(
     () => allThreads.flatMap((thread) => [thread.parent, ...thread.replies]),
     [allThreads],
@@ -353,6 +390,24 @@ export function CommunityReviews({ communityId }: CommunityReviewsProps) {
     if (!selectedTerm) return displayedThreads
     return allThreads.filter((thread) => threadContainsTerm(thread, selectedTerm))
   }, [allThreads, displayedThreads, selectedTerm])
+
+  useEffect(() => {
+    let ignore = false
+
+    fetchReviewKeywordConfig()
+      .then((config) => {
+        if (!ignore) {
+          setKeywordConfig(config)
+        }
+      })
+      .catch((err: unknown) => {
+        console.warn('Failed to load review keyword config; using frontend fallback.', err)
+      })
+
+    return () => {
+      ignore = true
+    }
+  }, [])
 
   // Fetch all reviews initially (client-side pagination)
   useEffect(() => {
@@ -368,7 +423,8 @@ export function CommunityReviews({ communityId }: CommunityReviewsProps) {
         setDisplayedThreads([])
 
         const apiBase = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
-        const response = await fetch(`${apiBase}/communities/${communityId}/reviews`)
+        const aiFilterQuery = useAiFilter ? '?ai_filter=true' : ''
+        const response = await fetch(`${apiBase}/communities/${communityId}/reviews${aiFilterQuery}`)
 
         if (!response.ok) {
           throw new Error('Failed to fetch reviews')
@@ -388,7 +444,7 @@ export function CommunityReviews({ communityId }: CommunityReviewsProps) {
     }
 
     fetchReviews()
-  }, [communityId])
+  }, [communityId, useAiFilter])
 
   // Handle loading more items
   const loadMore = useCallback(() => {
@@ -425,49 +481,95 @@ export function CommunityReviews({ communityId }: CommunityReviewsProps) {
     }
   }, [loadMore, displayedThreads.length, allThreads.length])
 
+  const reviewControls = (
+    <Card elevation={0} sx={{ border: `1px solid ${theme.palette.divider}` }}>
+      <CardContent sx={{ py: 1.5 }}>
+        <Stack
+          direction={{ xs: 'column', sm: 'row' }}
+          spacing={1}
+          alignItems={{ xs: 'flex-start', sm: 'center' }}
+          justifyContent="space-between"
+        >
+          <FormControlLabel
+            control={
+              <Switch
+                checked={useAiFilter}
+                onChange={(event) => setUseAiFilter(event.target.checked)}
+                color="primary"
+              />
+            }
+            label="AI filter"
+          />
+          <Chip
+            size="small"
+            color={useAiFilter ? 'primary' : 'default'}
+            variant={useAiFilter ? 'filled' : 'outlined'}
+            label={useAiFilter ? 'Filtered comments' : 'Original comments'}
+          />
+        </Stack>
+      </CardContent>
+    </Card>
+  )
+
   if (loading && page === 1) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
-        <CircularProgress />
-      </Box>
+      <Stack spacing={2}>
+        {reviewControls}
+        <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
+          <CircularProgress />
+        </Box>
+      </Stack>
     )
   }
 
   if (error) {
     return (
-      <Box sx={{ p: 2 }}>
-        <Typography color="error" variant="body2">
-          {error}
-        </Typography>
-      </Box>
+      <Stack spacing={2}>
+        {reviewControls}
+        <Box sx={{ p: 2 }}>
+          <Typography color="error" variant="body2">
+            {error}
+          </Typography>
+        </Box>
+      </Stack>
     )
   }
 
   if (allThreads.length === 0) {
     return (
-      <Box
-        sx={{
-          p: 4,
-          textAlign: 'center',
-          bgcolor: alpha(theme.palette.background.paper, 0.5),
-          borderRadius: 2,
-        }}
-      >
-        <Typography variant="body1" color="text.secondary">
-          No reviews found for this community yet.
-        </Typography>
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-          (Try "Irvine Spectrum" or "Woodbridge" for sample data)
-        </Typography>
-      </Box>
+      <Stack spacing={2}>
+        {reviewControls}
+        <Box
+          sx={{
+            p: 4,
+            textAlign: 'center',
+            bgcolor: alpha(theme.palette.background.paper, 0.5),
+            borderRadius: 2,
+          }}
+        >
+          <Typography variant="body1" color="text.secondary">
+            {useAiFilter
+              ? 'No comments remained after AI filtering.'
+              : 'No reviews found for this community yet.'}
+          </Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+            {useAiFilter
+              ? 'Turn off AI filter to view the original comments.'
+              : '(Try "Irvine Spectrum" or "Woodbridge" for sample data)'}
+          </Typography>
+        </Box>
+      </Stack>
     )
   }
 
   return (
     <Stack spacing={2}>
+      {reviewControls}
+
       <ReviewWordCloud
         reviews={allReviews}
         threads={allThreads}
+        keywordConfig={normalizedKeywordConfig}
         selectedTerm={selectedTerm}
         onSelectTerm={setSelectedTerm}
         onClearTerm={() => setSelectedTerm(null)}
@@ -540,18 +642,23 @@ export function CommunityReviews({ communityId }: CommunityReviewsProps) {
 function ReviewWordCloud({
   reviews,
   threads,
+  keywordConfig,
   selectedTerm,
   onSelectTerm,
   onClearTerm,
 }: {
   reviews: Review[]
   threads: Thread[]
+  keywordConfig: NormalizedKeywordConfig
   selectedTerm: string | null
   onSelectTerm: (term: string) => void
   onClearTerm: () => void
 }) {
   const theme = useTheme()
-  const entries = useMemo(() => extractWordCloudEntries(reviews), [reviews])
+  const entries = useMemo(
+    () => extractWordCloudEntries(reviews, keywordConfig),
+    [reviews, keywordConfig],
+  )
   const cloudRef = useRef<HTMLDivElement | null>(null)
   const [cloudWidth, setCloudWidth] = useState(760)
   const [layoutWords, setLayoutWords] = useState<CloudLayoutWord[]>([])
