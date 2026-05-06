@@ -183,6 +183,14 @@ export type ApiCommunityReport = {
   agent_trace: ApiAgentTraceStep[]
 }
 
+export type ApiReviewKeywordConfig = {
+  version: string
+  stop_words: string[]
+  noise_words: string[]
+  rental_signal_words: string[]
+  phrases: string[]
+}
+
 // ── Scoring formula (replicates scoring_service.py exactly) ──────────────────
 
 function clamp(v: number, lo = 0, hi = 100): number {
@@ -320,6 +328,12 @@ export async function fetchCommunityInsight(
   })
   if (!res.ok) throw new Error(`Community insight ${id}: HTTP ${res.status}`)
   return res.json() as Promise<ApiCommunityInsight>
+}
+
+export async function fetchReviewKeywordConfig(): Promise<ApiReviewKeywordConfig> {
+  const res = await fetch(`${API_BASE}/communities/review-keyword-config`)
+  if (!res.ok) throw new Error(`Review keyword config: HTTP ${res.status}`)
+  return res.json() as Promise<ApiReviewKeywordConfig>
 }
 
 export async function postRecommend(
