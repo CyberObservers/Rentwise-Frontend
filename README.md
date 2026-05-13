@@ -289,13 +289,7 @@ Current status: frontend is configured for local development and local Docker ex
 
 ## Demo Video
 
-TODO: Add final demo video link.
-
-Suggested format:
-
-```text
-Demo video: https://...
-```
+[Demo video](https://drive.google.com/file/d/1BufoYp1h5vMAkXCaezZZxoiZ-KXkTJWT/view?usp=sharing)
 
 ## Known Issues / Future Work
 
