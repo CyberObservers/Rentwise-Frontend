@@ -381,14 +381,25 @@ export async function postChat(messages: ChatMessagePayload[]): Promise<ChatApiR
     60_000,
   )
   try {
-    const res = await fetch(`${API_BASE}/chat`, {
+    const res = await fetch(`${API_BASE}/agent/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ messages }),
       signal: controller.signal,
     })
     if (!res.ok) throw new Error(`Chat: HTTP ${res.status}`)
-    return await res.json() as ChatApiResponse
+    const data = await res.json() as Partial<ChatApiResponse>
+    return {
+      reply: data.reply ?? '',
+      weights: data.weights ?? {
+        safety: null,
+        transit: null,
+        convenience: null,
+        parking: null,
+        environment: null,
+      },
+      ready_to_recommend: data.ready_to_recommend ?? false,
+    }
   } finally {
     clearTimeout(timer)
   }
