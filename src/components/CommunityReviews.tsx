@@ -178,6 +178,28 @@ function normalizeReviewText(input: string): string {
     .trim()
 }
 
+function extractTextFragment(url: string | null): string | null {
+  if (!url) return null
+
+  const fragmentIndex = url.indexOf('#')
+  if (fragmentIndex === -1) return null
+
+  const fragment = url.slice(fragmentIndex + 1)
+  const directive = fragment.includes(':~:')
+    ? fragment.slice(fragment.indexOf(':~:') + 3)
+    : fragment.startsWith('text=')
+      ? fragment
+      : null
+  if (!directive) return null
+
+  const text = new URLSearchParams(directive).get('text')?.trim()
+  return text || null
+}
+
+function getReviewDisplayText(review: Review): string {
+  return extractTextFragment(getReviewUrl(review)) ?? review.body_text
+}
+
 function getReviewRelevanceMultiplier(
   normalized: string,
   keywordConfig: NormalizedKeywordConfig,
@@ -212,7 +234,7 @@ function extractWordCloudEntries(
   const mentionsByTerm = new Map<string, number>()
 
   reviews.forEach((review) => {
-    const normalized = normalizeReviewText(review.body_text)
+    const normalized = normalizeReviewText(getReviewDisplayText(review))
     if (!normalized) return
 
     const relevance = getReviewRelevanceMultiplier(normalized, keywordConfig)
@@ -291,7 +313,7 @@ function buildTermRegex(term: string, flags = 'i'): RegExp {
 }
 
 function reviewContainsTerm(review: Review, term: string): boolean {
-  return buildTermRegex(term).test(normalizeReviewText(review.body_text))
+  return buildTermRegex(term).test(normalizeReviewText(getReviewDisplayText(review)))
 }
 
 function threadContainsTerm(thread: Thread, term: string): boolean {
@@ -876,6 +898,7 @@ function getReviewUrl(review: Review): string | null {
 function ReviewCard({ review, isReply, highlightedTerm }: { review: Review, isReply: boolean, highlightedTerm: string | null }) {
   const theme = useTheme()
   const reviewUrl = getReviewUrl(review)
+  const displayText = getReviewDisplayText(review)
 
   return (
     <Card
@@ -936,7 +959,7 @@ function ReviewCard({ review, isReply, highlightedTerm }: { review: Review, isRe
       />
       <CardContent sx={{ pt: 0, pb: '16px !important' }}>
         <Typography variant="body2" color="text.primary">
-          <HighlightedCommentText text={review.body_text} term={highlightedTerm} />
+          <HighlightedCommentText text={displayText} term={highlightedTerm} />
         </Typography>
       </CardContent>
     </Card>
