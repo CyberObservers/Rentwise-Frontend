@@ -2,6 +2,26 @@ import type { Dimension, Neighborhood } from './types'
 
 export const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api'
 
+async function readJson<T>(res: Response, label: string): Promise<T> {
+  const contentType = res.headers.get('content-type') ?? ''
+  const text = await res.text()
+
+  if (!res.ok) {
+    throw new Error(`${label}: HTTP ${res.status} from ${res.url}${text ? ` - ${text.slice(0, 180)}` : ''}`)
+  }
+
+  if (!contentType.includes('application/json')) {
+    const hint = text.trim().startsWith('<!doctype') || text.trim().startsWith('<html')
+      ? ' The frontend likely requested the Cloudflare Pages app instead of the backend. Check VITE_API_BASE_URL.'
+      : ''
+    throw new Error(
+      `${label}: expected JSON from ${res.url}, got ${contentType || 'unknown content type'}.${hint}`,
+    )
+  }
+
+  return JSON.parse(text) as T
+}
+
 // ── TypeScript types mirroring backend Pydantic schemas ──────────────────────
 
 export type ApiCommunity = {
@@ -308,14 +328,12 @@ export function buildNeighborhood(detail: ApiCommunityDetail): Neighborhood {
 
 export async function fetchCommunities(): Promise<ApiCommunityDetail[]> {
   const res = await fetch(`${API_BASE}/communities`)
-  if (!res.ok) throw new Error(`Communities: HTTP ${res.status}`)
-  return res.json() as Promise<ApiCommunityDetail[]>
+  return readJson<ApiCommunityDetail[]>(res, 'Communities')
 }
 
 export async function fetchCommunityDetail(id: string): Promise<ApiCommunityDetail> {
   const res = await fetch(`${API_BASE}/communities/${id}`)
-  if (!res.ok) throw new Error(`Community ${id}: HTTP ${res.status}`)
-  return res.json() as Promise<ApiCommunityDetail>
+  return readJson<ApiCommunityDetail>(res, `Community ${id}`)
 }
 
 export async function fetchCommunityInsight(
@@ -327,14 +345,12 @@ export async function fetchCommunityInsight(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ max_reviews: maxReviews }),
   })
-  if (!res.ok) throw new Error(`Community insight ${id}: HTTP ${res.status}`)
-  return res.json() as Promise<ApiCommunityInsight>
+  return readJson<ApiCommunityInsight>(res, `Community insight ${id}`)
 }
 
 export async function fetchReviewKeywordConfig(): Promise<ApiReviewKeywordConfig> {
   const res = await fetch(`${API_BASE}/communities/review-keyword-config`)
-  if (!res.ok) throw new Error(`Review keyword config: HTTP ${res.status}`)
-  return res.json() as Promise<ApiReviewKeywordConfig>
+  return readJson<ApiReviewKeywordConfig>(res, 'Review keyword config')
 }
 
 export async function postRecommend(
@@ -349,8 +365,7 @@ export async function postRecommend(
       top_k: topK,
     }),
   })
-  if (!res.ok) throw new Error(`Recommend: HTTP ${res.status}`)
-  return res.json() as Promise<ApiRecommendationResponse>
+  return readJson<ApiRecommendationResponse>(res, 'Recommend')
 }
 
 // ── Chat API ──────────────────────────────────────────────────────────────────
@@ -381,14 +396,24 @@ export async function postChat(messages: ChatMessagePayload[]): Promise<ChatApiR
     60_000,
   )
   try {
-    const res = await fetch(`${API_BASE}/chat`, {
+    const res = await fetch(`${API_BASE}/agent/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ messages }),
       signal: controller.signal,
     })
-    if (!res.ok) throw new Error(`Chat: HTTP ${res.status}`)
-    return await res.json() as ChatApiResponse
+    const data = await readJson<Partial<ChatApiResponse>>(res, 'Chat')
+    return {
+      reply: data.reply ?? '',
+      weights: data.weights ?? {
+        safety: null,
+        transit: null,
+        convenience: null,
+        parking: null,
+        environment: null,
+      },
+      ready_to_recommend: data.ready_to_recommend ?? false,
+    }
   } finally {
     clearTimeout(timer)
   }
@@ -409,12 +434,7 @@ export async function postCompare(
     }),
   })
 
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(`Compare failed: ${res.status}${text ? ` ${text}` : ''}`)
-  }
-
-  return res.json() as Promise<ApiCompareResult>
+  return readJson<ApiCompareResult>(res, 'Compare')
 }
 
 export async function postCommunityReport(
@@ -446,12 +466,7 @@ export async function postCommunityReport(
       signal: controller.signal,
     })
 
-    if (!res.ok) {
-      const text = await res.text()
-      throw new Error(`Community report failed: ${res.status}${text ? ` ${text}` : ''}`)
-    }
-
-    return await res.json() as ApiCommunityReport
+    return await readJson<ApiCommunityReport>(res, 'Community report')
   } finally {
     clearTimeout(timer)
     signal?.removeEventListener('abort', abortHandler)
