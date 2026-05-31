@@ -16,6 +16,7 @@ import './App.css'
 
 import {
   type ApiCommunityDetail,
+  type ApiCommunityReport,
   type ApiCompareResult,
   type ApiRecommendationItem,
   type ChatApiResponse,
@@ -23,6 +24,7 @@ import {
   fetchCommunities,
   fetchCommunityDetail,
   postCompare,
+  postCommunityReport,
   postRecommend,
 } from './api'
 import {
@@ -56,6 +58,16 @@ const DEFAULT_WEIGHTS: Record<Dimension, number> = {
   convenience: 20,
   parking: 20,
   environment: 20,
+}
+
+let communitiesRequest: Promise<ApiCommunityDetail[]> | null = null
+
+function loadCommunitiesOnce(forceRefresh = false): Promise<ApiCommunityDetail[]> {
+  if (forceRefresh) {
+    communitiesRequest = null
+  }
+  communitiesRequest ??= fetchCommunities()
+  return communitiesRequest
 }
 
 const theme = createTheme({
@@ -132,6 +144,13 @@ function App() {
   const [leftNeighborhood, setLeftNeighborhood] = useState('')
   const [rightNeighborhood, setRightNeighborhood] = useState('')
   const [weights, setWeights] = useState<Record<Dimension, number>>(DEFAULT_WEIGHTS)
+  const [comparisonWeights, setComparisonWeights] = useState<Record<Dimension, number>>(
+    DEFAULT_WEIGHTS,
+  )
+  const [activeReportCommunityId, setActiveReportCommunityId] = useState('')
+  const [reportsByCommunityId, setReportsByCommunityId] = useState<Record<string, ApiCommunityReport>>({})
+  const [reportLoadingByCommunityId, setReportLoadingByCommunityId] = useState<Record<string, boolean>>({})
+  const [reportErrorByCommunityId, setReportErrorByCommunityId] = useState<Record<string, string | null>>({})
 
   const [communities, setCommunities] = useState<Neighborhood[]>([])
   const [communitiesLoading, setCommunitiesLoading] = useState(true)
@@ -148,6 +167,9 @@ function App() {
   const [recommendationsError, setRecommendationsError] = useState<string | null>(null)
   const recommendationRequestIdRef = useRef(0)
   const defaultRecommendationRequestedRef = useRef(false)
+  const previousActiveStepRef = useRef(activeStep)
+  const reportRequestsInFlightRef = useRef(new Set<string>())
+  const reportCacheVersionRef = useRef(0)
 
   useEffect(() => {
     // Start downloading the Maps SDK as soon as the app boots so it can load in
@@ -162,11 +184,16 @@ function App() {
       setCommunitiesLoading(true)
       setCommunitiesError(null)
       setRecommendedCommunities([])
+      setReportsByCommunityId({})
+      setReportLoadingByCommunityId({})
+      setReportErrorByCommunityId({})
+      setActiveReportCommunityId('')
+      reportCacheVersionRef.current += 1
       setRecommendationsError(null)
       defaultRecommendationRequestedRef.current = false
 
       try {
-        const details = await fetchCommunities()
+        const details = await loadCommunitiesOnce(communityListReloadKey > 0)
         if (cancelled) return
         if (details.length === 0) {
           throw new Error('Communities: backend returned an empty list')
@@ -232,6 +259,12 @@ function App() {
     () => communities.find((item) => item.name === selectedNeighborhood) ?? communities[0] ?? null,
     [communities, selectedNeighborhood],
   )
+  const activeReportNeighborhoodData = useMemo(
+    () =>
+      communities.find((item) => item.id === activeReportCommunityId)
+      ?? selectedNeighborhoodData,
+    [activeReportCommunityId, communities, selectedNeighborhoodData],
+  )
 
   const leftData = useMemo(
     () => communities.find((item) => item.name === leftNeighborhood) ?? selectedNeighborhoodData,
@@ -248,12 +281,12 @@ function App() {
   const rightNeighborhoodId = rightData?.id ?? ''
 
   const leftScore = useMemo(
-    () => (leftData ? scoreNeighborhood(leftData, weights) : 0),
-    [leftData, weights],
+    () => (leftData ? scoreNeighborhood(leftData, comparisonWeights) : 0),
+    [comparisonWeights, leftData],
   )
   const rightScore = useMemo(
-    () => (rightData ? scoreNeighborhood(rightData, weights) : 0),
-    [rightData, weights],
+    () => (rightData ? scoreNeighborhood(rightData, comparisonWeights) : 0),
+    [comparisonWeights, rightData],
   )
 
   const recommendation = useMemo(() => {
@@ -267,7 +300,10 @@ function App() {
     return `${preferred} leads by ${diff} points based on the current backend metrics and your selected weights.`
   }, [leftData, leftScore, rightData, rightScore])
 
-  const topDrivers = useMemo(() => getTopDriverDimensions(weights), [weights])
+  const topDrivers = useMemo(
+    () => getTopDriverDimensions(comparisonWeights),
+    [comparisonWeights],
+  )
   const recommendationScores = useMemo(
     () =>
       Object.fromEntries(
@@ -315,6 +351,11 @@ function App() {
 
         const items = response.ranked_communities
         setRecommendedCommunities(items)
+        setReportsByCommunityId({})
+        setReportLoadingByCommunityId({})
+        setReportErrorByCommunityId({})
+        setActiveReportCommunityId(items[0]?.community_id ?? '')
+        reportCacheVersionRef.current += 1
         applyRecommendedCommunities(items, options?.updateCompareSelections ?? false)
 
         if (items.length === 0) {
@@ -324,6 +365,11 @@ function App() {
         if (recommendationRequestIdRef.current !== requestId) return
 
         setRecommendedCommunities([])
+        setReportsByCommunityId({})
+        setReportLoadingByCommunityId({})
+        setReportErrorByCommunityId({})
+        setActiveReportCommunityId('')
+        reportCacheVersionRef.current += 1
         setRecommendationsError(
           getErrorMessage(error, 'Unable to load recommendations from the backend.'),
         )
@@ -363,11 +409,65 @@ function App() {
   }, [llmWeights])
 
   useEffect(() => {
+    if (activeReportCommunityId) return
+    const topChoice = recommendedCommunities[0]
+    if (topChoice) {
+      setActiveReportCommunityId(topChoice.community_id)
+    }
+  }, [activeReportCommunityId, recommendedCommunities])
+
+  useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }, [activeStep])
 
+  useEffect(() => {
+    const previousStep = previousActiveStepRef.current
+    if (activeStep === 2 && previousStep !== 2) {
+      setComparisonWeights(weights)
+    }
+    previousActiveStepRef.current = activeStep
+  }, [activeStep, weights])
+
   const isOnDashboard = activeStep === 2
   const isOnReviewPage = activeStep === 3
+
+  useEffect(() => {
+    if (activeStep !== 1 || !activeReportCommunityId) return
+    if (reportsByCommunityId[activeReportCommunityId]) return
+    const cacheVersion = reportCacheVersionRef.current
+    const requestKey = `${cacheVersion}:${activeReportCommunityId}`
+    if (reportRequestsInFlightRef.current.has(requestKey)) return
+
+    reportRequestsInFlightRef.current.add(requestKey)
+    setReportLoadingByCommunityId((prev) => ({ ...prev, [activeReportCommunityId]: true }))
+    setReportErrorByCommunityId((prev) => ({ ...prev, [activeReportCommunityId]: null }))
+
+    postCommunityReport(activeReportCommunityId, weights)
+      .then((report) => {
+        if (reportCacheVersionRef.current !== cacheVersion) return
+        setReportsByCommunityId((prev) => ({ ...prev, [activeReportCommunityId]: report }))
+      })
+      .catch((error) => {
+        if (reportCacheVersionRef.current !== cacheVersion) return
+        setReportErrorByCommunityId((prev) => ({
+          ...prev,
+          [activeReportCommunityId]: getErrorMessage(error, 'Unable to load report.'),
+        }))
+      })
+      .finally(() => {
+        reportRequestsInFlightRef.current.delete(requestKey)
+        if (reportCacheVersionRef.current !== cacheVersion) return
+        setReportLoadingByCommunityId((prev) => ({
+          ...prev,
+          [activeReportCommunityId]: false,
+        }))
+      })
+  }, [
+    activeReportCommunityId,
+    activeStep,
+    reportsByCommunityId,
+    weights,
+  ])
 
   useEffect(() => {
     if (!isOnDashboard || !leftNeighborhoodId || !rightNeighborhoodId) return
@@ -378,7 +478,7 @@ function App() {
     setCompareResult(null)
     setCompareError(null)
 
-    postCompare(leftNeighborhoodId, rightNeighborhoodId, weights)
+    postCompare(leftNeighborhoodId, rightNeighborhoodId, comparisonWeights)
       .then((result) => {
         if (!cancelled) setCompareResult(result)
       })
@@ -396,10 +496,10 @@ function App() {
     return () => {
       cancelled = true
     }
-  }, [isOnDashboard, leftNeighborhoodId, rightNeighborhoodId, weights])
+  }, [comparisonWeights, isOnDashboard, leftNeighborhoodId, rightNeighborhoodId])
 
   const handleWeightsChange = (nextWeights: Record<Dimension, number>) => {
-    setWeights(nextWeights)
+    setComparisonWeights(nextWeights)
   }
 
   const handleChatResponse = useCallback(async (response: ChatApiResponse) => {
@@ -458,9 +558,15 @@ function App() {
             </Stack>
           )}
 
-          {!communitiesLoading && !communitiesError && selectedNeighborhoodData && leftData && rightData && (
+          {!communitiesLoading && !communitiesError && selectedNeighborhoodData && activeReportNeighborhoodData && leftData && rightData && (
             <>
-              <NavigationStepper activeStep={activeStep} steps={steps} />
+              <NavigationStepper
+                activeStep={activeStep}
+                steps={steps}
+                onStepClick={(step) => {
+                  if (step <= activeStep) setActiveStep(step)
+                }}
+              />
 
               {activeStep === 0 && (
                 <Fade in={activeStep === 0}>
@@ -494,8 +600,14 @@ function App() {
                   <Fade in={activeStep === 1}>
                     <div>
                       <CommunityReportPage
-                        selectedNeighborhoodData={selectedNeighborhoodData}
+                        selectedNeighborhoodData={activeReportNeighborhoodData}
                         weights={weights}
+                        recommendationItems={recommendedCommunities}
+                        activeReportCommunityId={activeReportCommunityId}
+                        onActiveReportCommunityChange={setActiveReportCommunityId}
+                        report={reportsByCommunityId[activeReportCommunityId] ?? null}
+                        loading={Boolean(reportLoadingByCommunityId[activeReportCommunityId])}
+                        error={reportErrorByCommunityId[activeReportCommunityId] ?? null}
                       />
                     </div>
                   </Fade>
@@ -508,7 +620,7 @@ function App() {
                     <div>
                       <Dashboard
                         neighborhoods={communities}
-                        weights={weights}
+                        weights={comparisonWeights}
                         onWeightsChange={handleWeightsChange}
                         topDrivers={topDrivers}
                         leftNeighborhood={leftNeighborhood}

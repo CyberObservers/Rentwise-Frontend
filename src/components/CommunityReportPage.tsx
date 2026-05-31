@@ -13,9 +13,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   type ApiAgentTraceStep,
   type ApiCommunityReport,
+  type ApiCommunityReportDimension,
   type ApiCommunityReportMetricSnapshot,
   type ApiCommunityReportReview,
-  postCommunityReport,
+  type ApiRecommendationItem,
 } from '../api'
 import { loadGoogleMapsScript } from '../googleMapsLoader'
 import type { Dimension, Neighborhood } from '../types'
@@ -25,6 +26,12 @@ import { DimensionRadarChart } from './DimensionRadarChart'
 type CommunityReportPageProps = {
   selectedNeighborhoodData: Neighborhood
   weights: Record<Dimension, number>
+  recommendationItems: ApiRecommendationItem[]
+  activeReportCommunityId: string
+  onActiveReportCommunityChange: (communityId: string) => void
+  report: ApiCommunityReport | null
+  loading: boolean
+  error: string | null
 }
 
 const sectionOrder = [
@@ -35,8 +42,6 @@ const sectionOrder = [
   'viewing_checklist',
   'sources',
 ]
-
-const REPORT_REQUEST_DEBOUNCE_MS = 700
 
 const coreCoverageMetrics: {
   key: keyof ApiCommunityReportMetricSnapshot
@@ -73,6 +78,28 @@ function getCoreMetricCoverage(metrics: ApiCommunityReportMetricSnapshot) {
   const available = coreCoverageMetrics.filter((item) => metrics[item.key] != null)
   const missing = coreCoverageMetrics.filter((item) => metrics[item.key] == null)
   return { available, missing, total: coreCoverageMetrics.length }
+}
+
+function getReportDataCoverage(
+  metrics: ApiCommunityReportMetricSnapshot,
+  reportDimensions: ApiCommunityReportDimension[],
+) {
+  const metricCoverage = getCoreMetricCoverage(metrics)
+  const dimensionByName = new Map(reportDimensions.map((item) => [item.dimension, item]))
+  const availableDimensions = dimensions.filter((dimension) => {
+    const score = dimensionByName.get(dimension)?.score_0_100
+    return score != null
+  })
+  const missingDimensions = dimensions.filter((dimension) => !availableDimensions.includes(dimension))
+
+  return {
+    availableMetrics: metricCoverage.available,
+    missingMetrics: metricCoverage.missing,
+    availableDimensions,
+    missingDimensions,
+    availableCount: metricCoverage.available.length + availableDimensions.length,
+    total: metricCoverage.total + dimensions.length,
+  }
 }
 
 function sectionAccent(type: string): string {
@@ -349,11 +376,13 @@ function CommunityLocationMap({
 export function CommunityReportPage({
   selectedNeighborhoodData,
   weights,
+  recommendationItems,
+  activeReportCommunityId,
+  onActiveReportCommunityChange,
+  report,
+  loading,
+  error,
 }: CommunityReportPageProps) {
-  const [report, setReport] = useState<ApiCommunityReport | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
   const preferenceItems = useMemo(
     () =>
       Object.entries(weights)
@@ -364,36 +393,6 @@ export function CommunityReportPage({
         })),
     [weights],
   )
-
-  useEffect(() => {
-    const controller = new AbortController()
-    let cancelled = false
-
-    const timer = window.setTimeout(() => {
-      setLoading(true)
-      setError(null)
-
-      postCommunityReport(selectedNeighborhoodData.id, weights, controller.signal)
-        .then((nextReport) => {
-          if (!cancelled) setReport(nextReport)
-        })
-        .catch((err) => {
-          if (cancelled || controller.signal.aborted) return
-
-          setReport(null)
-          setError(err instanceof Error ? err.message : 'Unable to load report.')
-        })
-        .finally(() => {
-          if (!cancelled) setLoading(false)
-        })
-    }, REPORT_REQUEST_DEBOUNCE_MS)
-
-    return () => {
-      cancelled = true
-      window.clearTimeout(timer)
-      controller.abort()
-    }
-  }, [selectedNeighborhoodData.id, weights])
 
   const sortedSections = useMemo(() => {
     if (!report) return []
@@ -422,9 +421,9 @@ export function CommunityReportPage({
     ) as Partial<Record<Dimension, string | null>>
   }, [report?.dimensions])
 
-  const coreMetricCoverage = useMemo(() => {
+  const dataCoverage = useMemo(() => {
     if (!report) return null
-    return getCoreMetricCoverage(report.metrics)
+    return getReportDataCoverage(report.metrics, report.dimensions)
   }, [report])
 
   return (
@@ -441,6 +440,21 @@ export function CommunityReportPage({
       >
         <CardContent sx={{ p: { xs: 2.25, md: 3.5 } }}>
           <Stack spacing={2.5}>
+            {recommendationItems.length > 0 && (
+              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                {recommendationItems.slice(0, 3).map((item) => (
+                  <Chip
+                    key={item.community_id}
+                    label={`#${item.rank} ${item.name}`}
+                    clickable
+                    color={item.community_id === activeReportCommunityId ? 'primary' : 'default'}
+                    variant={item.community_id === activeReportCommunityId ? 'filled' : 'outlined'}
+                    onClick={() => onActiveReportCommunityChange(item.community_id)}
+                    sx={{ fontWeight: 850 }}
+                  />
+                ))}
+              </Stack>
+            )}
             <Stack
               direction={{ xs: 'column', md: 'row' }}
               spacing={2.5}
@@ -653,8 +667,8 @@ export function CommunityReportPage({
                   </Typography>
                   <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                     <Chip
-                      label={`Data coverage: ${coreMetricCoverage
-                        ? formatDataCoverage(coreMetricCoverage.available.length, coreMetricCoverage.total)
+                      label={`Data coverage: ${dataCoverage
+                        ? formatDataCoverage(dataCoverage.availableCount, dataCoverage.total)
                         : 'N/A'}`}
                       color="primary"
                       variant="outlined"
@@ -665,21 +679,33 @@ export function CommunityReportPage({
                       color="text.secondary"
                       sx={{ alignSelf: 'center', lineHeight: 1.5 }}
                     >
-                      Share of core metrics currently available, not prediction certainty.
+                      Share of core metrics and report dimension scores currently available.
                     </Typography>
                   </Stack>
-                  {coreMetricCoverage && (
+                  {dataCoverage && (
                     <Stack spacing={0.4}>
                       <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.55 }}>
                         Available core metrics:{' '}
-                        {coreMetricCoverage.available.length
-                          ? coreMetricCoverage.available.map((item) => item.label).join(', ')
+                        {dataCoverage.availableMetrics.length
+                          ? dataCoverage.availableMetrics.map((item) => item.label).join(', ')
                           : 'None'}
                       </Typography>
                       <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.55 }}>
                         Missing core metrics:{' '}
-                        {coreMetricCoverage.missing.length
-                          ? coreMetricCoverage.missing.map((item) => item.label).join(', ')
+                        {dataCoverage.missingMetrics.length
+                          ? dataCoverage.missingMetrics.map((item) => item.label).join(', ')
+                          : 'None'}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.55 }}>
+                        Available report dimensions:{' '}
+                        {dataCoverage.availableDimensions.length
+                          ? dataCoverage.availableDimensions.map((dimension) => dimensionLabels[dimension]).join(', ')
+                          : 'None'}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.55 }}>
+                        Missing report dimensions:{' '}
+                        {dataCoverage.missingDimensions.length
+                          ? dataCoverage.missingDimensions.map((dimension) => dimensionLabels[dimension]).join(', ')
                           : 'None'}
                       </Typography>
                     </Stack>
@@ -903,43 +929,6 @@ export function CommunityReportPage({
             >
               <CardContent sx={{ p: { xs: 2.25, md: 2.5 } }}>
                 <Stack spacing={2}>
-                  {/* <Typography variant="h6" sx={{ color: '#101828' }}>Review Sources</Typography>
-                  {report.reviews.length === 0 && (
-                    <Typography color="text.secondary" variant="body2">
-                      No sourced review snippets are available yet.
-                    </Typography>
-                  )}
-                  {report.reviews.map((review) => (
-                    <Stack
-                      key={`${review.platform}-${review.body_text}`}
-                      spacing={1}
-                      sx={{
-                        border: '1px solid rgba(15, 23, 42, 0.08)',
-                        borderRadius: 2,
-                        backgroundColor: '#F8FAFC',
-                        p: 1.5,
-                      }}
-                    >
-                      <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.6 }}>
-                        {review.body_text}
-                      </Typography>
-                      <Stack direction="row" spacing={1} alignItems="center">
-                        <Chip size="small" label={review.platform ?? 'source'} />
-                        {review.source_url && (
-                          <Button
-                            size="small"
-                            href={review.source_url}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            Source
-                          </Button>
-                        )}
-                      </Stack>
-                    </Stack>
-                  ))} */}
-                  {/* <Divider sx={{ borderColor: 'rgba(15, 23, 42, 0.08)' }} /> */}
-
                   <Typography variant="h6" sx={{ color: '#101828' }}>Agent Trace</Typography>
                   {report.agent_trace.map((step) => (
                     <Stack

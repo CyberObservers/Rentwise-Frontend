@@ -103,7 +103,7 @@ export function Dashboard({
     <Stack spacing={3}>
       <WeightEditorCard
         title="Tune priorities live on this page"
-        description="Adjust any weight here and the comparison scores below will update immediately."
+        description="Comparison changes are temporary"
         weights={weights}
         onChange={onWeightsChange}
       />
@@ -113,7 +113,7 @@ export function Dashboard({
           <Stack spacing={1.5}>
             <Typography variant="h6">Current priorities</Typography>
             <Typography color="text.secondary">
-              These weights were tuned in Step 2 and are already applied to the comparison below.
+              Comparison changes are temporary
             </Typography>
             <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
               <Typography variant="body2" color="text.secondary" sx={{ alignSelf: 'center' }}>

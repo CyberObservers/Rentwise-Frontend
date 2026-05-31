@@ -1,11 +1,12 @@
-import { Box, Card, CardContent, Step, StepLabel, Stepper, alpha } from '@mui/material'
+import { Box, Card, CardContent, Step, StepButton, StepLabel, Stepper, alpha } from '@mui/material'
 
 type NavigationStepperProps = {
   activeStep: number
   steps: string[]
+  onStepClick?: (step: number) => void
 }
 
-export function NavigationStepper({ activeStep, steps }: NavigationStepperProps) {
+export function NavigationStepper({ activeStep, steps, onStepClick }: NavigationStepperProps) {
   return (
     <Box
       sx={(theme) => ({
@@ -108,9 +109,13 @@ export function NavigationStepper({ activeStep, steps }: NavigationStepperProps)
               },
             }}
           >
-            {steps.map((label) => (
-              <Step key={label}>
-                <StepLabel>{label}</StepLabel>
+            {steps.map((label, index) => (
+              <Step key={label} completed={index < activeStep}>
+                {onStepClick && index <= activeStep ? (
+                  <StepButton onClick={() => onStepClick(index)}>{label}</StepButton>
+                ) : (
+                  <StepLabel>{label}</StepLabel>
+                )}
               </Step>
             ))}
           </Stepper>
