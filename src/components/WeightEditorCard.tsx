@@ -7,23 +7,44 @@ import {
   Stack,
   Typography,
 } from '@mui/material'
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type { PointerEvent } from 'react'
 import { dimensionLabels, dimensions, dimensionStyles } from '../types'
 import type { Dimension } from '../types'
+
+const weightsEqual = (
+  first: Record<Dimension, number>,
+  second: Record<Dimension, number>,
+) => dimensions.every((dimension) => first[dimension] === second[dimension])
 
 function WeightBar({
   weights,
   onChange,
+  compact = false,
 }: {
   weights: Record<Dimension, number>
   onChange: (next: Record<Dimension, number>) => void
+  compact?: boolean
 }) {
   const barRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<{ idx: number; startX: number; startWeights: number[] } | null>(null)
+  const draftWeightsRef = useRef(weights)
+  const [draftWeights, setDraftWeights] = useState(weights)
   const [isDragging, setIsDragging] = useState(false)
 
+  useEffect(() => {
+    if (dragRef.current) return
+    draftWeightsRef.current = weights
+    setDraftWeights(weights)
+  }, [weights])
+
+  const updateDraftWeights = useCallback((next: Record<Dimension, number>) => {
+    draftWeightsRef.current = next
+    setDraftWeights(next)
+  }, [])
+
   const handlePointerDown = useCallback(
-    (idx: number, e: React.PointerEvent) => {
+    (idx: number, e: PointerEvent<HTMLElement>) => {
       e.preventDefault()
       const bar = barRef.current
       if (!bar) return
@@ -32,14 +53,14 @@ function WeightBar({
       dragRef.current = {
         idx,
         startX: e.clientX,
-        startWeights: dimensions.map((d) => weights[d]),
+        startWeights: dimensions.map((d) => draftWeightsRef.current[d]),
       }
     },
-    [weights],
+    [],
   )
 
   const handlePointerMove = useCallback(
-    (e: React.PointerEvent) => {
+    (e: PointerEvent<HTMLElement>) => {
       const drag = dragRef.current
       const bar = barRef.current
       if (!drag || !bar) return
@@ -52,35 +73,72 @@ function WeightBar({
       const right = drag.startWeights[drag.idx + 1]
       const available = left + right
 
-      const newLeft = Math.max(1, Math.min(available - 1, left + deltaPct))
+      const newLeft = Math.max(0, Math.min(available, left + deltaPct))
       const newRight = available - newLeft
 
-      const next = { ...weights }
+      const next = { ...draftWeightsRef.current }
       dimensions.forEach((d, i) => {
         if (i === drag.idx) next[d] = newLeft
         else if (i === drag.idx + 1) next[d] = newRight
         else next[d] = drag.startWeights[i]
       })
-      onChange(next)
+      updateDraftWeights(next)
     },
-    [weights, onChange],
+    [updateDraftWeights],
   )
 
   const handlePointerUp = useCallback(() => {
+    const next = draftWeightsRef.current
     dragRef.current = null
     setIsDragging(false)
-  }, [])
+    if (!weightsEqual(weights, next)) {
+      onChange(next)
+    }
+  }, [onChange, weights])
+
+  const shouldUseLegend = compact && dimensions.some((dim) => draftWeights[dim] < 8)
 
   return (
     <Box>
+      {shouldUseLegend && (
+        <Stack
+          direction="row"
+          spacing={1}
+          useFlexGap
+          flexWrap="wrap"
+          justifyContent="flex-end"
+          sx={{ mb: 0.5 }}
+        >
+          {dimensions.map((dim) => (
+            <Stack key={dim} direction="row" spacing={0.4} alignItems="center">
+              <Box
+                sx={{
+                  width: 7,
+                  height: 7,
+                  borderRadius: '50%',
+                  backgroundColor: dimensionStyles[dim].solid,
+                  flexShrink: 0,
+                }}
+              />
+              <Typography
+                variant="caption"
+                fontWeight={700}
+                sx={{ color: dimensionStyles[dim].text, whiteSpace: 'nowrap' }}
+              >
+                {dimensionLabels[dim]} {draftWeights[dim]}%
+              </Typography>
+            </Stack>
+          ))}
+        </Stack>
+      )}
       <Box
         ref={barRef}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
-        onPointerLeave={handlePointerUp}
+        onPointerCancel={handlePointerUp}
         sx={{
           display: 'flex',
-          height: 48,
+          height: compact ? 40 : 48,
           borderRadius: 2,
           overflow: 'hidden',
           border: '1px solid',
@@ -91,12 +149,14 @@ function WeightBar({
         }}
       >
         {dimensions.map((dim, idx) => {
-          const pct = weights[dim]
+          const pct = draftWeights[dim]
+          const canShowPercent = pct >= (compact ? 4 : 3)
           return (
             <Box
               key={dim}
               sx={{
-                width: `${pct}%`,
+                flex: `${pct} 1 0`,
+                minWidth: compact ? 14 : 18,
                 height: '100%',
                 display: 'flex',
                 alignItems: 'center',
@@ -106,12 +166,12 @@ function WeightBar({
                 fontSize: 13,
                 fontWeight: 600,
                 position: 'relative',
-                transition: isDragging ? 'none' : 'width 0.15s',
+                transition: isDragging ? 'none' : 'flex 0.15s',
                 overflow: 'hidden',
                 whiteSpace: 'nowrap',
               }}
             >
-              {`${pct}%`}
+              {canShowPercent ? `${pct}%` : ''}
               {idx < dimensions.length - 1 && (
                 <Box
                   onPointerDown={(e) => handlePointerDown(idx, e)}
@@ -140,24 +200,28 @@ function WeightBar({
           )
         })}
       </Box>
-      <Box sx={{ display: 'flex', mt: 0.5 }}>
-        {dimensions.map((dim) => (
-          <Box
-            key={dim}
-            sx={{
-              width: `${weights[dim]}%`,
-              textAlign: 'center',
-              fontSize: 12,
-              fontWeight: 600,
-              color: dimensionStyles[dim].text,
-              overflow: 'hidden',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {weights[dim] >= 8 ? dimensionLabels[dim] : ''}
-          </Box>
-        ))}
-      </Box>
+      {!shouldUseLegend && (
+        <Box sx={{ display: 'flex', mt: 0.5 }}>
+          {dimensions.map((dim) => (
+            <Box
+              key={dim}
+              sx={{
+                flex: `${draftWeights[dim]} 1 0`,
+                minWidth: compact ? 14 : 18,
+                textAlign: 'center',
+                fontSize: 12,
+                fontWeight: 600,
+                color: dimensionStyles[dim].text,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {dimensionLabels[dim]}
+            </Box>
+          ))}
+        </Box>
+      )}
     </Box>
   )
 }
@@ -169,6 +233,9 @@ type WeightEditorCardProps = {
   onChange: (nextWeights: Record<Dimension, number>) => void
   aiSuggestedWeights?: Record<Dimension, number> | null
   aiSuggestedLabel?: string
+  compact?: boolean
+  embedded?: boolean
+  showHeader?: boolean
 }
 
 export function WeightEditorCard({
@@ -178,7 +245,75 @@ export function WeightEditorCard({
   onChange,
   aiSuggestedWeights = null,
   aiSuggestedLabel = 'Started from LLM chat preferences',
+  compact = false,
+  embedded = false,
+  showHeader = true,
 }: WeightEditorCardProps) {
+  const content = (
+    <Stack spacing={compact ? 1.1 : 2}>
+      {showHeader && (
+        <Stack
+          direction={compact ? { xs: 'column', sm: 'row' } : 'column'}
+          spacing={compact ? { xs: 0.15, sm: 1.25 } : 0.75}
+          alignItems={compact ? { xs: 'flex-start', sm: 'baseline' } : undefined}
+        >
+          <Typography variant="h6">
+            {title}
+          </Typography>
+          <Typography color="text.secondary">
+            {description}
+          </Typography>
+        </Stack>
+      )}
+
+      {!compact && (
+        <Stack direction="row" spacing={1.5} useFlexGap flexWrap="wrap" alignItems="center">
+          {dimensions.map((dim) => (
+            <Stack key={dim} direction="row" spacing={0.75} alignItems="center">
+              <Box
+                sx={{
+                  width: 10,
+                  height: 10,
+                  borderRadius: '50%',
+                  backgroundColor: dimensionStyles[dim].solid,
+                  flexShrink: 0,
+                }}
+              />
+              <Typography
+                variant="body2"
+                fontWeight={600}
+                sx={{ whiteSpace: 'nowrap', color: dimensionStyles[dim].text }}
+              >
+                {dimensionLabels[dim]}
+              </Typography>
+            </Stack>
+          ))}
+          {aiSuggestedWeights && (
+            <>
+              <Chip label={aiSuggestedLabel} color="secondary" variant="outlined" size="small" />
+              <Button size="small" variant="text" onClick={() => onChange(aiSuggestedWeights)}>
+                Restore AI weights
+              </Button>
+            </>
+          )}
+        </Stack>
+      )}
+
+      {compact && aiSuggestedWeights && (
+        <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" alignItems="center">
+          <Chip label={aiSuggestedLabel} color="secondary" variant="outlined" size="small" />
+          <Button size="small" variant="text" onClick={() => onChange(aiSuggestedWeights)}>
+            Restore AI weights
+          </Button>
+        </Stack>
+      )}
+
+      <WeightBar weights={weights} onChange={onChange} compact={compact} />
+    </Stack>
+  )
+
+  if (embedded) return content
+
   return (
     <Card
       sx={{
@@ -187,46 +322,14 @@ export function WeightEditorCard({
         boxShadow: '0 10px 30px rgba(15, 23, 42, 0.05)',
       }}
     >
-      <CardContent>
-        <Stack spacing={2}>
-          <Stack spacing={0.75}>
-            <Typography variant="h6">{title}</Typography>
-            <Typography color="text.secondary">{description}</Typography>
-          </Stack>
-
-          <Stack direction="row" spacing={1.5} useFlexGap flexWrap="wrap" alignItems="center">
-            {dimensions.map((dim) => (
-              <Stack key={dim} direction="row" spacing={0.75} alignItems="center">
-                <Box
-                  sx={{
-                    width: 10,
-                    height: 10,
-                    borderRadius: '50%',
-                    backgroundColor: dimensionStyles[dim].solid,
-                    flexShrink: 0,
-                  }}
-                />
-                <Typography
-                  variant="body2"
-                  fontWeight={600}
-                  sx={{ whiteSpace: 'nowrap', color: dimensionStyles[dim].text }}
-                >
-                  {dimensionLabels[dim]}
-                </Typography>
-              </Stack>
-            ))}
-            {aiSuggestedWeights && (
-              <>
-                <Chip label={aiSuggestedLabel} color="secondary" variant="outlined" size="small" />
-                <Button size="small" variant="text" onClick={() => onChange(aiSuggestedWeights)}>
-                  Restore AI weights
-                </Button>
-              </>
-            )}
-          </Stack>
-
-          <WeightBar weights={weights} onChange={onChange} />
-        </Stack>
+      <CardContent
+        sx={
+          compact
+            ? { p: { xs: 2, md: 2.25 }, '&:last-child': { pb: { xs: 2, md: 2.25 } } }
+            : undefined
+        }
+      >
+        {content}
       </CardContent>
     </Card>
   )

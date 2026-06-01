@@ -423,18 +423,36 @@ export async function postCompare(
   communityAId: string,
   communityBId: string,
   weights: Record<string, number>,
+  signal?: AbortSignal,
 ): Promise<ApiCompareResult> {
-  const res = await fetch(`${API_BASE}/compare`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      community_a_id: communityAId,
-      community_b_id: communityBId,
-      weights,
-    }),
-  })
+  const controller = new AbortController()
+  const abortFromParent = () => controller.abort(signal?.reason)
+  if (signal?.aborted) {
+    controller.abort(signal.reason)
+  } else {
+    signal?.addEventListener('abort', abortFromParent, { once: true })
+  }
+  const timer = setTimeout(
+    () => controller.abort(new DOMException('Compare request timed out', 'TimeoutError')),
+    12_000,
+  )
+  try {
+    const res = await fetch(`${API_BASE}/compare`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        community_a_id: communityAId,
+        community_b_id: communityBId,
+        weights,
+      }),
+      signal: controller.signal,
+    })
 
-  return readJson<ApiCompareResult>(res, 'Compare')
+    return readJson<ApiCompareResult>(res, 'Compare')
+  } finally {
+    clearTimeout(timer)
+    signal?.removeEventListener('abort', abortFromParent)
+  }
 }
 
 export async function postCommunityReport(

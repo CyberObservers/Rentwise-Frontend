@@ -28,7 +28,6 @@ import {
   postRecommend,
 } from './api'
 import {
-  getTopDriverDimensions,
   normalizeWeights,
   scoreNeighborhood,
 } from './logic'
@@ -300,10 +299,6 @@ function App() {
     return `${preferred} leads by ${diff} points based on the current backend metrics and your selected weights.`
   }, [leftData, leftScore, rightData, rightScore])
 
-  const topDrivers = useMemo(
-    () => getTopDriverDimensions(comparisonWeights),
-    [comparisonWeights],
-  )
   const recommendationScores = useMemo(
     () =>
       Object.fromEntries(
@@ -473,28 +468,27 @@ function App() {
     if (!isOnDashboard || !leftNeighborhoodId || !rightNeighborhoodId) return
     if (leftNeighborhoodId === rightNeighborhoodId) return
 
-    let cancelled = false
+    const controller = new AbortController()
     setCompareLoading(true)
     setCompareResult(null)
     setCompareError(null)
 
-    postCompare(leftNeighborhoodId, rightNeighborhoodId, comparisonWeights)
+    postCompare(leftNeighborhoodId, rightNeighborhoodId, comparisonWeights, controller.signal)
       .then((result) => {
-        if (!cancelled) setCompareResult(result)
+        setCompareResult(result)
       })
       .catch((error) => {
-        if (!cancelled) {
-          setCompareError(
-            getErrorMessage(error, 'Unable to load live comparison data from the backend.'),
-          )
-        }
+        if (controller.signal.aborted) return
+        setCompareError(
+          getErrorMessage(error, 'Unable to load live comparison data from the backend.'),
+        )
       })
       .finally(() => {
-        if (!cancelled) setCompareLoading(false)
+        if (!controller.signal.aborted) setCompareLoading(false)
       })
 
     return () => {
-      cancelled = true
+      controller.abort()
     }
   }, [comparisonWeights, isOnDashboard, leftNeighborhoodId, rightNeighborhoodId])
 
@@ -622,7 +616,6 @@ function App() {
                         neighborhoods={communities}
                         weights={comparisonWeights}
                         onWeightsChange={handleWeightsChange}
-                        topDrivers={topDrivers}
                         leftNeighborhood={leftNeighborhood}
                         rightNeighborhood={rightNeighborhood}
                         onNeighborhoodChange={handleNeighborhoodSelect}
