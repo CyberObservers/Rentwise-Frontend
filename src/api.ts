@@ -22,6 +22,42 @@ async function readJson<T>(res: Response, label: string): Promise<T> {
   return JSON.parse(text) as T
 }
 
+function createTimedSignal(timeoutMs: number, parentSignal?: AbortSignal) {
+  const controller = new AbortController()
+  const abortFromParent = () => controller.abort(parentSignal?.reason)
+  if (parentSignal?.aborted) {
+    controller.abort(parentSignal.reason)
+  } else {
+    parentSignal?.addEventListener('abort', abortFromParent, { once: true })
+  }
+  const timer = setTimeout(
+    () => controller.abort(new DOMException('Request timed out', 'TimeoutError')),
+    timeoutMs,
+  )
+
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      clearTimeout(timer)
+      parentSignal?.removeEventListener('abort', abortFromParent)
+    },
+  }
+}
+
+async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit = {},
+  timeoutMs = 12_000,
+) {
+  const { signal: parentSignal, ...rest } = init
+  const timed = createTimedSignal(timeoutMs, parentSignal ?? undefined)
+  try {
+    return await fetch(input, { ...rest, signal: timed.signal })
+  } finally {
+    timed.cleanup()
+  }
+}
+
 // ── TypeScript types mirroring backend Pydantic schemas ──────────────────────
 
 export type ApiCommunity = {
@@ -326,13 +362,16 @@ export function buildNeighborhood(detail: ApiCommunityDetail): Neighborhood {
   }
 }
 
-export async function fetchCommunities(): Promise<ApiCommunityDetail[]> {
-  const res = await fetch(`${API_BASE}/communities`)
+export async function fetchCommunities(signal?: AbortSignal): Promise<ApiCommunityDetail[]> {
+  const res = await fetchWithTimeout(`${API_BASE}/communities`, { signal }, 10_000)
   return readJson<ApiCommunityDetail[]>(res, 'Communities')
 }
 
-export async function fetchCommunityDetail(id: string): Promise<ApiCommunityDetail> {
-  const res = await fetch(`${API_BASE}/communities/${id}`)
+export async function fetchCommunityDetail(
+  id: string,
+  signal?: AbortSignal,
+): Promise<ApiCommunityDetail> {
+  const res = await fetchWithTimeout(`${API_BASE}/communities/${id}`, { signal }, 15_000)
   return readJson<ApiCommunityDetail>(res, `Community ${id}`)
 }
 
@@ -356,15 +395,17 @@ export async function fetchReviewKeywordConfig(): Promise<ApiReviewKeywordConfig
 export async function postRecommend(
   weights?: Record<string, number>,
   topK = 3,
+  signal?: AbortSignal,
 ): Promise<ApiRecommendationResponse> {
-  const res = await fetch(`${API_BASE}/recommend`, {
+  const res = await fetchWithTimeout(`${API_BASE}/recommend`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       weights: weights ?? {},
       top_k: topK,
     }),
-  })
+    signal,
+  }, 10_000)
   return readJson<ApiRecommendationResponse>(res, 'Recommend')
 }
 
@@ -389,8 +430,17 @@ export type ChatApiResponse = {
   ready_to_recommend: boolean
 }
 
-export async function postChat(messages: ChatMessagePayload[]): Promise<ChatApiResponse> {
+export async function postChat(
+  messages: ChatMessagePayload[],
+  signal?: AbortSignal,
+): Promise<ChatApiResponse> {
   const controller = new AbortController()
+  const abortFromParent = () => controller.abort(signal?.reason)
+  if (signal?.aborted) {
+    controller.abort(signal.reason)
+  } else {
+    signal?.addEventListener('abort', abortFromParent, { once: true })
+  }
   const timer = setTimeout(
     () => controller.abort(new DOMException('Chat request timed out', 'TimeoutError')),
     60_000,
@@ -416,6 +466,7 @@ export async function postChat(messages: ChatMessagePayload[]): Promise<ChatApiR
     }
   } finally {
     clearTimeout(timer)
+    signal?.removeEventListener('abort', abortFromParent)
   }
 }
 

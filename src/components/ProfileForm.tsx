@@ -287,9 +287,13 @@ export function ProfileForm({
   const communityDetailsRef = useRef(communityDetails)
   const neighborhoodsRef = useRef(neighborhoods)
   const recommendationScoresRef = useRef(recommendationScores)
+  const chatAbortRef = useRef<AbortController | null>(null)
   useEffect(() => { communityDetailsRef.current = communityDetails }, [communityDetails])
   useEffect(() => { neighborhoodsRef.current = neighborhoods }, [neighborhoods])
   useEffect(() => { recommendationScoresRef.current = recommendationScores }, [recommendationScores])
+  useEffect(() => () => {
+    chatAbortRef.current?.abort()
+  }, [])
   const [mapError, setMapError] = useState<string | null>(null)
   const [isMapReady, setIsMapReady] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
@@ -371,12 +375,16 @@ export function ProfileForm({
     setChatMessages(updatedMessages)
     setChatInput('')
     setIsGenerating(true)
+    chatAbortRef.current?.abort()
+    const controller = new AbortController()
+    chatAbortRef.current = controller
 
     try {
       // Send all messages except the initial greeting (index 0)
       const history = updatedMessages.slice(1)
       console.log('[chat] sending', history)
-      const response = await postChat(history)
+      const response = await postChat(history, controller.signal)
+      if (controller.signal.aborted) return
       console.log('[chat] response', response)
       setChatMessages((prev) => [...prev, { role: 'assistant', content: response.reply }])
       setLocalWeights({
@@ -388,6 +396,7 @@ export function ProfileForm({
       })
       await onChatResponse(response)
     } catch (err) {
+      if (controller.signal.aborted) return
       console.error('[chat] error', err)
       const isTimeout = err instanceof DOMException && err.name === 'TimeoutError'
       setChatMessages((prev) => [
@@ -400,8 +409,13 @@ export function ProfileForm({
         },
       ])
     } finally {
+      if (chatAbortRef.current === controller) {
+        chatAbortRef.current = null
+      }
       console.log('[chat] finally, setting isGenerating=false')
-      setIsGenerating(false)
+      if (!controller.signal.aborted) {
+        setIsGenerating(false)
+      }
     }
   }
 

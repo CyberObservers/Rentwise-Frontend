@@ -169,11 +169,16 @@ function App() {
   const previousActiveStepRef = useRef(activeStep)
   const reportRequestsInFlightRef = useRef(new Set<string>())
   const reportCacheVersionRef = useRef(0)
+  const recommendationAbortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
     // Start downloading the Maps SDK as soon as the app boots so it can load in
     // parallel with the community list request instead of after it.
     void loadGoogleMapsScript().catch(() => {})
+  }, [])
+
+  useEffect(() => () => {
+    recommendationAbortRef.current?.abort()
   }, [])
 
   useEffect(() => {
@@ -237,12 +242,13 @@ function App() {
     }
   }, [communityListReloadKey])
 
-  const refreshCommunity = useCallback(async (id: string) => {
+  const refreshCommunity = useCallback(async (id: string, signal?: AbortSignal) => {
     try {
-      const detail = await fetchCommunityDetail(id)
+      const detail = await fetchCommunityDetail(id, signal)
       setCommunityDetails((prev) => ({ ...prev, [id]: detail }))
       setCommunities((prev) => replaceNeighborhood(prev, detail))
     } catch (error) {
+      if (signal?.aborted) return
       console.error('[community] refresh failed', error)
     }
   }, [])
@@ -337,11 +343,14 @@ function App() {
     ) => {
       const requestId = recommendationRequestIdRef.current + 1
       recommendationRequestIdRef.current = requestId
+      recommendationAbortRef.current?.abort()
+      const controller = new AbortController()
+      recommendationAbortRef.current = controller
       setRecommendationsLoading(true)
       setRecommendationsError(null)
 
       try {
-        const response = await postRecommend(activeWeights, 3)
+        const response = await postRecommend(activeWeights, 3, controller.signal)
         if (recommendationRequestIdRef.current !== requestId) return
 
         const items = response.ranked_communities
@@ -357,6 +366,7 @@ function App() {
           setRecommendationsError('Backend returned no ranked communities for the current request.')
         }
       } catch (error) {
+        if (controller.signal.aborted) return
         if (recommendationRequestIdRef.current !== requestId) return
 
         setRecommendedCommunities([])
@@ -369,6 +379,9 @@ function App() {
           getErrorMessage(error, 'Unable to load recommendations from the backend.'),
         )
       } finally {
+        if (recommendationAbortRef.current === controller) {
+          recommendationAbortRef.current = null
+        }
         if (recommendationRequestIdRef.current === requestId) {
           setRecommendationsLoading(false)
         }
@@ -386,15 +399,18 @@ function App() {
   }, [communities.length, requestRecommendations])
 
   useEffect(() => {
-    if (selectedNeighborhoodId) {
-      void refreshCommunity(selectedNeighborhoodId)
-    }
+    if (!selectedNeighborhoodId) return
+    const controller = new AbortController()
+    void refreshCommunity(selectedNeighborhoodId, controller.signal)
+    return () => controller.abort()
   }, [refreshCommunity, selectedNeighborhoodId])
 
   useEffect(() => {
     if (activeStep < 2 || !leftNeighborhoodId || !rightNeighborhoodId) return
-    void refreshCommunity(leftNeighborhoodId)
-    void refreshCommunity(rightNeighborhoodId)
+    const controller = new AbortController()
+    void refreshCommunity(leftNeighborhoodId, controller.signal)
+    void refreshCommunity(rightNeighborhoodId, controller.signal)
+    return () => controller.abort()
   }, [activeStep, leftNeighborhoodId, refreshCommunity, rightNeighborhoodId])
 
   useEffect(() => {
@@ -438,9 +454,9 @@ function App() {
     setReportErrorByCommunityId((prev) => ({ ...prev, [activeReportCommunityId]: null }))
 
     postCommunityReport(activeReportCommunityId, weights)
-      .then((report) => {
+      .then((response) => {
         if (reportCacheVersionRef.current !== cacheVersion) return
-        setReportsByCommunityId((prev) => ({ ...prev, [activeReportCommunityId]: report }))
+        setReportsByCommunityId((prev) => ({ ...prev, [activeReportCommunityId]: response }))
       })
       .catch((error) => {
         if (reportCacheVersionRef.current !== cacheVersion) return
