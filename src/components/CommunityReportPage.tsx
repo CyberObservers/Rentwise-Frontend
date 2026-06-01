@@ -180,7 +180,41 @@ function parseMarkdownLink(input: string): { text: string; label: string; url: s
   }
 }
 
+function readObjectLikeField(input: string, field: string): string | null {
+  const match = input.match(
+    new RegExp(`['"]${field}['"]\\s*:\\s*(['"])([\\s\\S]*?)\\1(?=\\s*,\\s*['"]\\w+['"]\\s*:|\\s*})`),
+  )
+  return match?.[2]?.trim() || null
+}
+
+function inferReviewPlatform(url: string | null): string {
+  if (!url) return 'Review'
+  if (/youtube\.com|youtu\.be/i.test(url)) return 'YouTube'
+  return 'Review'
+}
+
+function parseObjectLikeReviewItem(input: string): ParsedReviewItem | null {
+  if (!input.trim().startsWith('{')) return null
+
+  const author = readObjectLikeField(input, 'author')
+  const body = readObjectLikeField(input, 'review') ?? readObjectLikeField(input, 'body')
+  const url = readObjectLikeField(input, 'url') ?? readObjectLikeField(input, 'source_url')
+
+  if (!author || !body) return null
+
+  return {
+    platform: inferReviewPlatform(url),
+    author,
+    body,
+    linkLabel: inferReviewPlatform(url) === 'YouTube' ? 'Open on YouTube' : 'Open review',
+    url: url ?? '',
+  }
+}
+
 function parseReviewItem(input: string): ParsedReviewItem | null {
+  const objectLikeReview = parseObjectLikeReviewItem(input)
+  if (objectLikeReview) return objectLikeReview
+
   const linked = parseMarkdownLink(input)
   if (!linked) return null
 
@@ -194,6 +228,30 @@ function parseReviewItem(input: string): ParsedReviewItem | null {
     linkLabel: linked.label,
     url: linked.url,
   }
+}
+
+function reviewItemKey(item: string): string {
+  const parsedReview = parseReviewItem(item)
+  if (parsedReview) {
+    return [
+      normalizeReviewText(parsedReview.author),
+      normalizeReviewText(parsedReview.body),
+      parsedReview.url,
+    ].join('|')
+  }
+
+  return normalizeReviewText(item)
+}
+
+function uniqueReviewItems(items: string[]): string[] {
+  const seen = new Set<string>()
+
+  return items.filter((item) => {
+    const key = reviewItemKey(item)
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
 }
 
 function normalizeReviewText(input: string | null | undefined): string {
@@ -784,6 +842,7 @@ export function CommunityReportPage({
                   <Typography variant="h6" sx={{ color: '#101828' }}>Report Sections</Typography>
                   {sortedSections.map((section) => {
                     const sourceLikeSection = isSourceLikeSection(section.type, section.title)
+                    const displayItems = sourceLikeSection ? uniqueReviewItems(section.items) : section.items
 
                     return (
                       <Box
@@ -814,15 +873,15 @@ export function CommunityReportPage({
                             {section.content}
                           </Typography>
                         )}
-                        {section.items.length > 0 && sourceLikeSection && (
+                        {displayItems.length > 0 && sourceLikeSection && (
                           <Stack spacing={1} sx={{ mt: 1.25 }}>
-                            {section.items.map((item) => {
+                            {displayItems.map((item) => {
                               const parsedReview = parseReviewItem(item)
                               const linkedItem = parseMarkdownLink(item)
                               const itemText = parsedReview?.body ?? linkedItem?.text ?? item
                               const itemUrl = parsedReview?.url
-                                ?? linkedItem?.url
-                                ?? findReviewSourceUrl(item, report.reviews)
+                                || linkedItem?.url
+                                || findReviewSourceUrl(item, report.reviews)
                               const itemLinkLabel = parsedReview?.linkLabel
                                 ?? linkedItem?.label
                                 ?? 'Open review'
@@ -896,9 +955,9 @@ export function CommunityReportPage({
                             })}
                           </Stack>
                         )}
-                        {section.items.length > 0 && !sourceLikeSection && (
+                        {displayItems.length > 0 && !sourceLikeSection && (
                           <Stack component="ul" spacing={0.75} sx={{ pl: 2.5, my: 1.25 }}>
-                            {section.items.map((item) => (
+                            {displayItems.map((item) => (
                               <Typography
                                 component="li"
                                 key={item}
