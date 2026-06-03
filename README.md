@@ -2,9 +2,13 @@
 
 RentWise is a React frontend for comparing Irvine, CA rental communities. It helps renters explore neighborhoods, translate personal preferences into recommendation weights, compare community tradeoffs, and review supporting community feedback before choosing where to live.
 
-This repository contains the frontend application. It expects the RentWise backend to provide community metrics, recommendation results, comparison summaries, AI chat responses, community reports, and review data.
+This directory contains the frontend application inside the combined RentWise repository. It expects the RentWise backend to provide community metrics, recommendation results, comparison summaries, AI chat responses, community reports, and review data.
 
-Backend repository: https://github.com/Lujixian2002/Rentwise-Backend
+Combined repository: https://github.com/Lujixian2002/Rentwise.git
+
+Live deployment: https://rentwise-cod.pages.dev/
+
+Demo video: https://drive.google.com/file/d/1BufoYp1h5vMAkXCaezZZxoiZ-KXkTJWT/view?usp=sharing
 
 ## Team Members
 
@@ -36,10 +40,9 @@ flowchart LR
   User[User Browser] --> Frontend[RentWise Frontend<br/>React + TypeScript + Vite + MUI]
   Frontend --> Router[App.tsx<br/>4-step wizard state]
   Router --> Explore[Explore<br/>ProfileForm + Google Map + AI chat]
-  Router --> Insights[Insights<br/>ConstraintsForm]
+  Router --> Insights[Insights<br/>CommunityReportPage]
   Router --> Compare[Compare<br/>Dashboard]
   Router --> Reviews[Reviews<br/>ReviewPage + CommunityReviews]
-  Router --> Report[CommunityReportPage]
 
   Frontend --> Api[src/api.ts<br/>typed fetch helpers]
   Api --> Proxy[Vite dev proxy<br/>/api -> localhost:8000]
@@ -83,9 +86,8 @@ src/
   googleMapsLoader.ts      # Google Maps script loader
   components/
     ProfileForm.tsx        # Step 1: map, community selection, AI preference chat
-    ConstraintsForm.tsx    # Step 2: selected-community insights
+    CommunityReportPage.tsx # Step 2: Insights report, metrics, risks, sources, agent trace
     Dashboard.tsx          # Step 3: comparison view
-    CommunityReportPage.tsx # Detailed AI-generated community report
     ReviewPage.tsx         # Step 4: review page wrapper
     CommunityReviews.tsx   # Review list, word cloud, keyword filtering
     NavigationStepper.tsx  # Step navigation
@@ -131,10 +133,10 @@ Primary data flow:
 1. `GET /communities` loads cached communities and metrics for the Explore step.
 2. `POST /agent/chat` routes user messages through `RentWiseAgent`; preference messages call the preference extraction skill and return normalized weights.
 3. `POST /recommend` normalizes weights, computes five dimension scores, ranks communities, and returns the top results.
-4. `POST /communities/:id/insight` refreshes metrics/reviews if needed, computes preference scores, and generates insight commentary with fallback text when OpenAI is unavailable.
+4. `POST /agent/community-report` loads the Insights step report for the active recommended community when it is not already cached.
 5. `POST /compare` resolves two communities, refreshes metrics, computes structured differences, and stores the comparison result.
 6. `GET /communities/:id/reviews` returns cached review posts, with optional AI filtering support on the backend.
-7. `POST /agent/community-report` uses the agent skill layer to create a detailed community report from database metrics, reviews, preferences, and source-aware research.
+7. `POST /communities/:id/insight` remains available for metric/review insight cards and fallback commentary.
 
 ## Tech Stack
 
@@ -152,8 +154,8 @@ Primary data flow:
 ### 1. Clone the repository
 
 ```bash
-git clone <frontend-repository-url>
-cd Rentwise-Frontend
+git clone https://github.com/Lujixian2002/Rentwise.git
+cd Rentwise/frontend
 ```
 
 ### 2. Install dependencies
@@ -194,7 +196,7 @@ Environment variables:
 Start the RentWise backend before using the frontend:
 
 ```text
-https://github.com/Lujixian2002/Rentwise-Backend
+../backend
 ```
 
 In local development, Vite proxies `/api` to:
@@ -277,14 +279,14 @@ Recommended manual verification:
 8. Open Reviews and verify review data, keyword filtering, and sorting work.
 9. Open the community report page and verify the generated sections and sources load.
 
-## Deployment / Local-Only Status
+## Deployment Status
 
-Current status: frontend is configured for local development and local Docker execution.
+Current status: the frontend is deployed and also supports local development and local Docker execution.
 
 - Local npm dev server: supported.
 - Local Docker Compose frontend: supported.
 - Production build: supported through `npm run build`.
-- Hosted deployment URL: TODO, add if deployed.
+- Hosted deployment URL: https://rentwise-cod.pages.dev/
 - Backend dependency: required for full functionality.
 
 ## Demo Video
@@ -295,7 +297,7 @@ Current status: frontend is configured for local development and local Docker ex
 
 - A Google Maps browser API key is required for the full Explore map experience.
 - The frontend depends on the backend being available; most core features cannot run with static mock data only.
-- Hosted deployment URL and demo video link still need to be added before final submission.
+- Free-tier backend hosting may have cold-start latency after idle periods.
 - Future work: add automated component tests for the four-step workflow.
 - Future work: add end-to-end tests that run against a seeded backend.
 - Future work: improve loading and empty-state coverage for partial backend data.
